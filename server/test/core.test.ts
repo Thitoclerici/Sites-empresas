@@ -60,3 +60,47 @@ test('seções sem dados ficam ocultas para o cliente e visíveis como pendênci
   assert.ok(editor.includes('Cardápio não encontrado'));
   assert.ok(!client.includes('noindex'));
 });
+
+import { themeFor, buildDirection, sectionPlan, contrast } from '../../shared/design.ts';
+import { evaluateSite } from '../../shared/quality.ts';
+
+test('três conceitos com composições diferentes (não só cores)', () => {
+  const htmls = (['refined', 'bold', 'inviting'] as const).map((c) => {
+    const s: SiteSpec = { ...spec, businessName: 'Café Teste', segment: 'cafe', theme: themeFor('cafe', c), sections: [{ id: 'h', type: 'hero', visible: true, props: { headline: 'Frase', ctaLabel: 'Ver', ctaHref: '#cardapio' }, origins: {}, pending: [] }] };
+    return renderSite(s, { mode: 'preview', resolveAsset: () => null, demoNotice: null });
+  });
+  assert.ok(htmls[0]!.includes('class="c-refined"') && htmls[0]!.includes('hr-name'));
+  assert.ok(htmls[1]!.includes('class="c-bold"') && htmls[1]!.includes('hb-name'));
+  assert.ok(htmls[2]!.includes('class="c-inviting"') && htmls[2]!.includes('hi-visual'));
+  assert.notEqual(themeFor('cafe', 'refined').headingFont, themeFor('cafe', 'bold').headingFont);
+  assert.notDeepEqual(sectionPlan('refined', 'food'), sectionPlan('inviting', 'food'));
+});
+
+test('sem foto autorizada usa arte gráfica e sinaliza a limitação', () => {
+  const s: SiteSpec = { ...spec, theme: themeFor('cafe', 'refined'), sections: [{ id: 'h', type: 'hero', visible: true, props: { headline: 'x', image: 'nao-autorizada' }, origins: {}, pending: [] }] };
+  const html = renderSite(s, { mode: 'preview', resolveAsset: () => null, demoNotice: null });
+  assert.ok(html.includes('artsvg'));
+  assert.ok(!html.includes('nao-autorizada'));
+  const d = buildDirection({ segment: 'cafe', segmentLabel: 'Cafeteria', name: 'X', hasPhotos: false, hasLogo: false, hasMenu: false, amenities: ['Wi-Fi'] });
+  assert.ok(d.photoNote);
+  assert.ok(d.audience.some((a) => a.basis === 'indício'));
+  assert.ok(d.audience.some((a) => a.basis === 'hipótese'));
+});
+
+test('paletas dos conceitos têm contraste legível', () => {
+  for (const seg of ['cafe', 'barbershop', 'pizzeria', 'clothing', 'bar', 'pet_shop']) {
+    for (const c of ['refined', 'bold', 'inviting'] as const) {
+      const t = themeFor(seg, c);
+      assert.ok(contrast(t.text, t.background) >= 7, `${seg}/${c} texto`);
+      assert.ok(contrast(t.muted, t.background) >= 4.5, `${seg}/${c} secundário`);
+    }
+  }
+});
+
+test('avaliação de qualidade aponta falta de contato e de conteúdo', () => {
+  const s: SiteSpec = { ...spec, theme: themeFor('cafe', 'inviting') };
+  const q = evaluateSite(s, { usableImageIds: [] });
+  assert.ok(q.score < 60);
+  assert.equal(q.checks.find((c) => c.id === 'contact')!.status, 'fail');
+  assert.equal(q.checks.find((c) => c.id === 'content')!.status, 'fail');
+});

@@ -49,6 +49,26 @@ Decisões principais:
 - **Prioridade explicável.** O score usa apenas critérios observáveis (situação do site, aderência do segmento, contato público, indícios de atividade, rede/franquia) e mostra os pontos de cada critério. Nunca estima faturamento.
 - **Extensível.** Um novo segmento é só um novo perfil em `segments.ts`, e uma nova fonte é só um novo provider. O SQLite pode migrar para PostgreSQL sem mudar o domínio.
 
+## 2.1 Motor de geração de sites (direção de arte)
+
+O gerador não preenche um modelo único. Para cada estabelecimento ele:
+
+1. **Analisa** o segmento e os dados verificados (`shared/design.ts → buildDirection`).
+2. **Define o público provável**, separando *hipóteses* (pelo segmento) de *indícios* (apoiados em dados, ex.: Wi-Fi registrado).
+3. **Escolhe uma direção visual** entre três conceitos com composição, tipografia e hierarquia próprias:
+   - **Moderno e sofisticado** (`refined`): editorial, serifas elegantes, muito respiro, cardápio em lista com leaders.
+   - **Criativo e impactante** (`bold`): nome em tipografia gigante condensada, blocos de cor, letreiro animado com dados reais, selo giratório, itens numerados.
+   - **Comercial e convidativo** (`inviting`): frase convidativa como título, produtos reais na primeira tela, cartões e chamadas de conversão.
+4. **Planeja a página** (ordem e tipo de seções variam por conceito e família: alimentação, serviços, varejo).
+5. **Compõe** cada seção com a linguagem do conceito (`shared/render.ts`), com paleta derivada da marca/segmento e contraste verificado.
+6. **Avalia a qualidade** (`shared/quality.ts`): primeira tela, imagem, conteúdo, conversão, contraste, excesso de texto, ritmo — nota de 0 a 100 com correções sugeridas (aba **Qualidade** do Estúdio).
+
+No Estúdio, **Direção visual** mostra as três propostas lado a lado (desktop e celular) para escolher; as edições de texto são preservadas ao trocar.
+
+**Imagens:** fotos só entram se tiverem uso autorizado. Sem elas, o site usa **arte gráfica generativa** única por negócio (formas nas cores da marca, ilustração do segmento, textura) — nunca fotos genéricas apresentadas como do local — e a direção criativa sinaliza essa limitação.
+
+**Avaliação visual com capturas reais:** `npm run qa:visual -- pasta-de-saida` sobe o servidor com banco temporário, cria negócios de teste (dados fictícios marcados como "teste"), gera os sites (use `QA_CONCEPTS=refined,bold,inviting` e `QA_ONLY=cafe-full,barbearia`) e salva capturas de desktop e celular + `report.json` com as notas. Requer Playwright instalado na máquina.
+
 ## 3. Como rodar
 
 Requisitos: Node.js ≥ 22.13.

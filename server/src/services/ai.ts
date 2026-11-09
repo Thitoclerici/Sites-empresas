@@ -42,6 +42,10 @@ async function parse<T extends z.ZodType>(schema: T, prompt: string, maxTokens =
 }
 
 export const CopySchema = z.object({
+  concept: z.enum(['refined', 'bold', 'inviting']).describe('Direção visual mais adequada ao negócio (respeite conceito_solicitado se vier preenchido).'),
+  tagline: z.string().describe('Frase principal da primeira tela: curta (até 55 caracteres), comercial, sem afirmar fatos não fornecidos.'),
+  statement: z.string().describe('Frase-manifesto de 1 a 2 linhas. Se houver descrição verificada, pode resumi-la; caso contrário, frase aspiracional sem fatos novos.'),
+  audience: z.array(z.object({ text: z.string(), basis: z.enum(['hipótese', 'indício']) })).describe('Público provável. "indício" só quando apoiado em um fato do briefing; senão "hipótese".'),
   heroEyebrow: z.string().describe('Texto curto acima do título (ex.: segmento + bairro).'),
   heroSubheadline: z.string(),
   aboutTitle: z.string(),
@@ -54,15 +58,16 @@ export const CopySchema = z.object({
   seoTitle: z.string().describe('Até 60 caracteres, com nome, segmento e bairro/cidade.'),
   seoDescription: z.string().describe('Até 155 caracteres.'),
   designRationale: z.string().describe('Uma frase explicando a direção visual escolhida.'),
-  presetIndex: z.number().int().describe('Índice da paleta mais adequada entre as opções fornecidas.'),
+
 });
 export type GeneratedCopy = z.infer<typeof CopySchema>;
 
-export async function generateCopy(brief: object, presetNames: string[]): Promise<GeneratedCopy> {
+export async function generateCopy(brief: object, concepts: string[]): Promise<GeneratedCopy> {
   return parse(
     CopySchema,
-    `Crie os textos do site de demonstração para o negócio abaixo e escolha a paleta mais adequada.
-Paletas disponíveis (índice: nome): ${presetNames.map((n, i) => `${i}: ${n}`).join('; ')}.
+    `Atue como diretor de arte e redator. Antes de escrever, analise o tipo de negócio, o público provável (separando hipóteses de indícios
+apoiados nos fatos), a identidade e os diferenciais. Escolha a direção visual e escreva textos que despertem desejo no consumidor final.
+Direções disponíveis: ${concepts.join('; ')}.
 
 Briefing (fatos verificados ou informados pelo operador, em JSON):
 ${JSON.stringify(brief, null, 2)}`,

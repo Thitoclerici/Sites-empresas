@@ -64,6 +64,8 @@ export function StudioEditor() {
   const [statusModal, setStatusModal] = useState<SiteStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [conceptOpen, setConceptOpen] = useState(false);
+  const autoConcept = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +83,12 @@ export function StudioEditor() {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    if (site && spec && !autoConcept.current) {
+      autoConcept.current = true;
+      if (!spec.meta.conceptChosen && site.version === 1) setConceptOpen(true);
+    }
+  }, [site, spec]);
 
   const update = useCallback((fn: (s: SiteSpec) => SiteSpec) => {
     setSpec((cur) => {
@@ -192,7 +200,7 @@ export function StudioEditor() {
           )}
         </div>
         <div className="tabs">
-          {([['sections', 'Seções'], ['content', 'Conteúdo'], ['theme', 'Visual'], ['seo', 'SEO'], ['tips', 'Sugestões']] as const).map(([k, l]) => (
+          {([['sections', 'Seções'], ['content', 'Conteúdo'], ['theme', 'Visual'], ['tips', 'Qualidade'], ['seo', 'SEO']] as const).map(([k, l]) => (
             <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
           ))}
         </div>
@@ -201,7 +209,13 @@ export function StudioEditor() {
           {tab === 'content' && (sel ? <ContentTab key={sel.id} section={sel} siteId={site.id} spec={spec} update={update} assets={usable} docs={menuDocs} aiEnabled={!!config?.integrations.ai} /> : <div className="muted small">Selecione uma seção na lista ou clique nela na prévia.</div>)}
           {tab === 'theme' && <ThemeTab spec={spec} update={update} detail={detail} assets={usable} />}
           {tab === 'seo' && <SeoTab spec={spec} update={update} />}
-          {tab === 'tips' && <TipsTab siteId={site.id} dirty={dirty} onGo={(sid) => sid && (setSelected(sid), setTab('content'))} />}
+          {tab === 'tips' && (
+            <>
+              <DirectionCard spec={spec} onChange={() => setConceptOpen(true)} />
+              <QualityCard siteId={site.id} version={site.version} dirty={dirty} spec={spec} onGo={(type) => { const sec = spec.sections.find((x) => x.type === type); if (sec) (setSelected(sec.id), setTab('content')); }} />
+              <TipsTab siteId={site.id} dirty={dirty} onGo={(sid) => sid && (setSelected(sid), setTab('content'))} />
+            </>
+          )}
         </div>
       </div>
 
@@ -213,6 +227,7 @@ export function StudioEditor() {
           <label className="row small"><input type="checkbox" checked={showPending} onChange={(e) => setShowPending(e.target.checked)} /> Modo edição (mostrar pendências)</label>
           <div className="row">
             <RegenerateButton siteId={site.id} dirty={dirty} onDone={load} aiEnabled={!!config?.integrations.ai} />
+            <button className="btn sm" onClick={() => (dirty ? save().then(() => setConceptOpen(true)) : setConceptOpen(true))}>◐ Direção visual</button>
             <button className="btn primary sm" onClick={() => (dirty ? save().then(() => setShareOpen(true)) : setShareOpen(true))}>➤ Enviar</button>
             <a className="btn sm" href={`/api/sites/${site.id}/preview`} target="_blank" rel="noreferrer" onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de abrir a prévia em nova aba.', true))}>Abrir prévia</a>
             <a className="btn sm" href={`/api/sites/${site.id}/export`} onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de exportar.', true))}>Exportar HTML</a>
@@ -230,6 +245,7 @@ export function StudioEditor() {
         </div>
       </div>
 
+      {conceptOpen && <ConceptPicker siteId={site.id} resolveAsset={resolveAsset} onClose={() => setConceptOpen(false)} onChosen={() => (setConceptOpen(false), load())} />}
       {shareOpen && <ShareModal siteId={site.id} businessName={detail.business.name} unverified={unverifiedCount} status={site.status} onClose={() => setShareOpen(false)} />}
       {statusModal && (
         <StatusModal
@@ -475,6 +491,8 @@ function FieldEditor({ field, value, origin, onChange, assets, docs = [] }: { fi
         </div>
       );
     }
+    case 'lines':
+      return <div className="field">{label}<TextBlock value={value} toText={(v) => (v ?? []).join('\n')} fromText={(t) => onChange(t.split('\n').map((x) => x.trim()).filter(Boolean))} rows={6} placeholder="Uma frase por linha" help="Use apenas informações reais (segmento, bairro, comodidades, horários)." /></div>;
     case 'groups':
       return <div className="field">{label}<TextBlock value={value} toText={groupsToText} fromText={(t) => onChange(parseGroups(t))} rows={10} placeholder={'# Categoria\nItem | descrição | preço'} help="Uma linha por item: Nome | descrição | preço. “# Categoria” agrupa." /></div>;
     case 'items':
@@ -657,5 +675,120 @@ function ShareModal({ siteId, businessName, unverified, status, onClose }: { sit
         <p className="small faint">O envio é sempre feito por você: a plataforma não manda mensagens automaticamente.</p>
       </div>
     </Modal>
+  );
+}
+
+/* ---------- direção visual: comparar e escolher conceitos ---------- */
+
+interface ConceptOption { id: string; label: string; description: string; spec: SiteSpec; quality: number }
+
+function MiniPreview({ spec, resolveAsset, width, height, scale }: { spec: SiteSpec; resolveAsset: (id: string) => string | null; width: number; height: number; scale: number }) {
+  const html = useMemo(() => renderSite(spec, { mode: 'preview', resolveAsset, demoNotice: null }), [spec, resolveAsset]);
+  return (
+    <div style={{ width: width * scale, height: height * scale, overflow: 'hidden', borderRadius: 10, border: '1px solid var(--line)', background: '#fff', position: 'relative', flex: 'none' }}>
+      <iframe title="Prévia" srcDoc={html} style={{ width, height, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }} />
+    </div>
+  );
+}
+
+function ConceptPicker({ siteId, resolveAsset, onClose, onChosen }: { siteId: string; resolveAsset: (id: string) => string | null; onClose: () => void; onChosen: () => void }) {
+  const { notify } = useApp();
+  const [data, setData] = useState<{ current: string | null; recommended: string | null; concepts: ConceptOption[] } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<typeof data>(`/api/sites/${siteId}/concepts`).then(setData).catch((e) => notify(e.message, true));
+  }, [siteId]);
+  async function choose(id: string) {
+    setBusy(id);
+    try {
+      await api.post(`/api/sites/${siteId}/concept`, { concept: id });
+      notify('Direção visual aplicada');
+      onChosen();
+    } catch (e: any) {
+      notify(e.message, true);
+      setBusy(null);
+    }
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ width: 'min(1320px,100%)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="card-head">
+          <div><h2>Escolha a direção visual</h2><div className="small muted">Três propostas com composição, tipografia e hierarquia diferentes — não só cores. Você pode trocar depois; suas edições de texto são mantidas.</div></div>
+          <button className="icon-btn" onClick={onClose}>✕</button>
+        </div>
+        <div className="card-pad">
+          {!data ? <div className="row"><Spinner /> Gerando as três propostas…</div> : (
+            <div className="grid g3" style={{ alignItems: 'start' }}>
+              {data.concepts.map((c) => (
+                <div key={c.id} className="card" style={{ padding: 14, borderColor: data.current === c.id ? 'var(--brand)' : undefined, boxShadow: data.current === c.id ? '0 0 0 2px var(--brand-soft)' : undefined }}>
+                  <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+                    <MiniPreview spec={c.spec} resolveAsset={resolveAsset} width={1280} height={900} scale={0.235} />
+                    <MiniPreview spec={c.spec} resolveAsset={resolveAsset} width={390} height={844} scale={0.25} />
+                  </div>
+                  <div className="row between" style={{ marginTop: 12 }}>
+                    <b>{c.label}</b>
+                    <div className="row" style={{ gap: 6 }}>
+                      {data.recommended === c.id && <span className="tag brand">recomendado</span>}
+                      {data.current === c.id && <span className="tag info">atual</span>}
+                    </div>
+                  </div>
+                  <p className="small muted" style={{ margin: '6px 0 10px' }}>{c.description}</p>
+                  <div className="row between">
+                    <span className="small faint">Nota de qualidade: {c.quality}/100</span>
+                    <button className="btn primary sm" disabled={!!busy} onClick={() => (data.current === c.id ? onClose() : choose(c.id))}>{busy === c.id ? <Spinner /> : data.current === c.id ? 'Manter' : 'Usar esta'}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DirectionCard({ spec, onChange }: { spec: SiteSpec; onChange: () => void }) {
+  const d = spec.meta.direction;
+  if (!d) return <div className="card card-pad small muted">Site gerado antes da direção de arte. Use “Direção visual” para gerar as novas propostas. <button className="btn sm" onClick={onChange}>Ver propostas</button></div>;
+  return (
+    <div className="card card-pad stack" style={{ gap: 8 }}>
+      <div className="row between"><h3>Direção criativa</h3><button className="btn sm" onClick={onChange}>Trocar</button></div>
+      <div className="small">{d.rationale}</div>
+      <div className="chips">{d.personality.map((p) => <span key={p} className="tag">{p}</span>)}</div>
+      <div className="small" style={{ fontWeight: 600, marginTop: 4 }}>Público provável</div>
+      {d.audience.map((a) => (
+        <div key={a.text} className="row small" style={{ gap: 6 }}><span className={`tag ${a.basis === 'indício' ? 'ok' : 'warn'}`}>{a.basis}</span>{a.text}</div>
+      ))}
+      <div className="small faint">“Hipótese” = suposição pelo segmento; “indício” = apoiado em um dado coletado.</div>
+      <div className="small" style={{ fontWeight: 600, marginTop: 4 }}>Decisões de design</div>
+      <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{d.visualNotes.map((n) => <li key={n}>{n}</li>)}</ul>
+      {d.photoNote && <div className="alert warn small">{d.photoNote}</div>}
+    </div>
+  );
+}
+
+interface QualityReportUI { score: number; grade: string; checks: { id: string; label: string; status: 'ok' | 'warn' | 'fail'; detail: string; fix?: string; sectionType?: string }[] }
+
+function QualityCard({ siteId, version, dirty, onGo }: { siteId: string; version: number; dirty: boolean; spec: SiteSpec; onGo: (type: string) => void }) {
+  const [q, setQ] = useState<QualityReportUI | null>(null);
+  useEffect(() => {
+    api.get<QualityReportUI>(`/api/sites/${siteId}/quality`).then(setQ).catch(() => undefined);
+  }, [siteId, version]);
+  if (!q) return <Spinner />;
+  const color = q.score >= 85 ? 'var(--ok)' : q.score >= 70 ? 'var(--info)' : q.score >= 50 ? 'var(--warn)' : 'var(--bad)';
+  const order = { fail: 0, warn: 1, ok: 2 };
+  return (
+    <div className="card card-pad stack" style={{ gap: 8 }}>
+      <div className="row between"><h3>Avaliação de qualidade</h3><span style={{ fontWeight: 800, fontSize: 22, color }}>{q.score}<span className="small faint">/100</span></span></div>
+      <div className="bar"><div style={{ width: `${q.score}%`, background: color }} /></div>
+      {dirty && <div className="small" style={{ color: 'var(--warn)' }}>Considera a última versão salva.</div>}
+      {[...q.checks].sort((a, b) => order[a.status] - order[b.status]).map((c) => (
+        <div key={c.id} style={{ borderTop: '1px solid var(--line)', paddingTop: 8, cursor: c.sectionType ? 'pointer' : 'default' }} onClick={() => c.sectionType && onGo(c.sectionType)}>
+          <div className="row" style={{ gap: 8 }}><span className={`tag ${c.status === 'ok' ? 'ok' : c.status === 'warn' ? 'warn' : 'bad'}`}>{c.status === 'ok' ? 'ok' : c.status === 'warn' ? 'atenção' : 'falha'}</span><b className="small">{c.label}</b></div>
+          <div className="small muted" style={{ marginTop: 3 }}>{c.detail}</div>
+          {c.status !== 'ok' && c.fix && <div className="small" style={{ marginTop: 3 }}>→ {c.fix}</div>}
+        </div>
+      ))}
+    </div>
   );
 }

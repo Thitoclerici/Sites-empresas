@@ -4,3 +4,4 @@ data/uploads
 web/dist
 .env
 exports
+qa-shots

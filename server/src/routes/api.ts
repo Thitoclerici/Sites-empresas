@@ -12,7 +12,9 @@ import { renderSite } from '../../../shared/render.ts';
 import * as repo from '../repo.ts';
 import { getSearch, recentSearches, runSearch, scoreBusiness } from '../services/prospecting.ts';
 import { computeMissing, investigate } from '../services/investigation.ts';
-import { buildBrief, computeNav, generateSpec } from '../services/generator.ts';
+import { buildBrief, computeNav, generateSpec, switchConcept } from '../services/generator.ts';
+import { CONCEPTS, type Concept } from '../../../shared/design.ts';
+import { evaluateSite } from '../../../shared/quality.ts';
 import { aiEnabled, aiModel, regenerateSectionText, suggestImprovements } from '../services/ai.ts';
 import { ruleSuggestions } from '../services/suggestions.ts';
 import { googleEnabled } from '../providers/googlePlaces.ts';
@@ -326,8 +328,8 @@ export async function apiRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/businesses/:id/sites', async (req, reply) => {
     const b = repo.getBusiness(req.params.id);
     if (!b) return fail(reply, 404, 'Estabelecimento não encontrado');
-    const { useAi } = z.object({ useAi: z.boolean().optional() }).parse(req.body ?? {});
-    const { spec, aiError, rationale } = await generateSpec(b.id, { useAi });
+    const { useAi, concept } = z.object({ useAi: z.boolean().optional(), concept: z.enum(['refined', 'bold', 'inviting']).optional() }).parse(req.body ?? {});
+    const { spec, aiError, rationale } = await generateSpec(b.id, { useAi, concept });
     const site = repo.createSite(b.id, `Demo — ${b.name}`, spec);
     repo.updateBusinessFields(b.id, { saved: 1 });
     repo.advanceStage(b.id, 'demo_created', STAGE_IDS, 'Demonstração de site criada');
@@ -386,6 +388,37 @@ export async function apiRoutes(app: FastifyInstance) {
     db.prepare('DELETE FROM sites WHERE id = ?').run(site.id);
     repo.addActivity(site.businessId, 'site_deleted', `Demonstração "${site.name}" excluída`);
     return { ok: true };
+  });
+
+  /* ---------- direção visual e qualidade ---------- */
+  const usableImageIds = (businessId: string) => repo.listAssets(businessId).filter((a) => USABLE_RIGHTS.includes(a.rights) && a.mime.startsWith('image/')).map((a) => a.id);
+
+  // Prévias dos três conceitos (não salva nada) para o operador comparar.
+  app.get<{ Params: { id: string } }>('/api/sites/:id/concepts', async (req, reply) => {
+    const site = repo.getSite(req.params.id);
+    if (!site) return fail(reply, 404, 'Site não encontrado');
+    const out = [];
+    for (const c of CONCEPTS) {
+      const spec = c.id === site.spec.theme.concept ? site.spec : await switchConcept(site.businessId, site.spec, c.id);
+      out.push({ ...c, spec, quality: evaluateSite(spec, { usableImageIds: usableImageIds(site.businessId) }).score });
+    }
+    return { current: site.spec.theme.concept ?? null, recommended: site.spec.meta.direction?.recommended ?? null, concepts: out };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/sites/:id/concept', async (req, reply) => {
+    const site = repo.getSite(req.params.id);
+    if (!site) return fail(reply, 404, 'Site não encontrado');
+    const { concept } = z.object({ concept: z.enum(['refined', 'bold', 'inviting']) }).parse(req.body);
+    const spec = await switchConcept(site.businessId, site.spec, concept as Concept);
+    const label = CONCEPTS.find((c) => c.id === concept)!.label;
+    repo.addActivity(site.businessId, 'site_concept', `Direção visual escolhida: ${label}`);
+    return { site: repo.saveSite(site.id, spec, `Direção visual: ${label}`) };
+  });
+
+  app.get<{ Params: { id: string } }>('/api/sites/:id/quality', async (req, reply) => {
+    const site = repo.getSite(req.params.id);
+    if (!site) return fail(reply, 404, 'Site não encontrado');
+    return evaluateSite(site.spec, { usableImageIds: usableImageIds(site.businessId) });
   });
 
   app.get<{ Params: { id: string } }>('/api/sites/:id/versions', async (req) => repo.listVersions(req.params.id));

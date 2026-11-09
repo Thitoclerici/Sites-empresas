@@ -11,7 +11,8 @@
     "build": "vite build --config web/vite.config.ts",
     "start": "NODE_ENV=production tsx --env-file-if-exists=.env server/src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test server/test/*.test.ts"
+    "test": "tsx --test server/test/*.test.ts",
+    "qa:visual": "node scripts/visual-qa.mjs"
   },
   "engines": {
     "node": ">=22.13"

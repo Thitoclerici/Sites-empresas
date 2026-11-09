@@ -24,6 +24,10 @@ export interface Theme {
   bodyFont: string;
   radius: number;
   heroStyle: 'split' | 'centered' | 'banner' | 'editorial';
+  /** Conceito visual (direção de arte). Ausente em sites antigos. */
+  concept?: 'refined' | 'bold' | 'inviting';
+  /** Fundo escuro (bar, barbearia nos conceitos refinado/impactante). */
+  dark?: boolean;
 }
 
 export interface Item {
@@ -66,15 +70,25 @@ export interface SiteSpec {
     whatsapp?: string;
     email?: string;
     address?: string;
+    /** Bairro (ou cidade) do endereço real, usado em legendas e selos. */
+    area?: string;
     lat?: number;
     lon?: number;
     socials: Record<string, string>;
     openingHoursRaw?: string;
   };
-  meta: { generatedAt: string; generator: 'ai' | 'template'; model?: string };
+  meta: {
+    generatedAt: string;
+    generator: 'ai' | 'template';
+    model?: string;
+    /** Briefing criativo usado na geração (hipóteses de público marcadas como tal). */
+    direction?: import('./design.ts').Direction;
+    /** O operador já escolheu a direção visual no Estúdio. */
+    conceptChosen?: boolean;
+  };
 }
 
-export type FieldType = 'text' | 'textarea' | 'url' | 'image' | 'images' | 'file' | 'groups' | 'items' | 'rows' | 'highlights' | 'toggle';
+export type FieldType = 'text' | 'textarea' | 'url' | 'image' | 'images' | 'file' | 'groups' | 'items' | 'rows' | 'highlights' | 'toggle' | 'lines';
 
 export interface FieldDef {
   key: string;
@@ -92,6 +106,36 @@ export interface SectionDef {
 }
 
 export const SECTION_DEFS: SectionDef[] = [
+  {
+    type: 'marquee',
+    label: 'Letreiro',
+    description: 'Faixa animada com informações reais do negócio (segmento, bairro, comodidades).',
+    variants: 1,
+    fields: [{ key: 'items', label: 'Frases (uma por linha)', type: 'lines' }],
+  },
+  {
+    type: 'statement',
+    label: 'Manifesto',
+    description: 'Frase de apresentação em destaque, com tipografia grande.',
+    variants: 1,
+    fields: [
+      { key: 'label', label: 'Rótulo', type: 'text' },
+      { key: 'text', label: 'Texto em destaque', type: 'textarea' },
+      { key: 'image', label: 'Imagem (opcional)', type: 'image' },
+    ],
+  },
+  {
+    type: 'visit',
+    label: 'Visite-nos (endereço, horário e mapa)',
+    description: 'Endereço, horários, contatos e mapa num só bloco.',
+    variants: 1,
+    fields: [
+      { key: 'title', label: 'Título', type: 'text' },
+      { key: 'text', label: 'Texto', type: 'textarea' },
+      { key: 'rows', label: 'Horários', type: 'rows' },
+      { key: 'showMap', label: 'Exibir mapa (OpenStreetMap)', type: 'toggle' },
+    ],
+  },
   {
     type: 'hero',
     label: 'Abertura (Hero)',
@@ -232,6 +276,7 @@ export function getSectionDef(type: string): SectionDef | undefined {
 }
 
 export const FONT_CHOICES = [
+  'Anton', 'Syne', 'Bricolage Grotesque', 'Manrope', 'Archivo',
   'Inter', 'DM Sans', 'Nunito', 'Nunito Sans', 'Montserrat', 'Poppins', 'Source Sans 3', 'Space Grotesk', 'Archivo',
   'Fraunces', 'Playfair Display', 'DM Serif Display', 'Cormorant Garamond', 'Lora', 'Oswald', 'Bebas Neue', 'Fredoka',
 ];
