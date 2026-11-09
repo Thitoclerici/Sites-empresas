@@ -3,12 +3,11 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { DATA_DIR, DB_PATH, UPLOAD_DIR } from './paths.ts';
 
-export const DATA_DIR = resolve(process.env.DATA_DIR ?? 'data');
-export const UPLOAD_DIR = resolve(DATA_DIR, 'uploads');
-const DB_PATH = resolve(DATA_DIR, process.env.DB_FILE ?? 'prospecta.db');
+export { DATA_DIR, UPLOAD_DIR };
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 mkdirSync(UPLOAD_DIR, { recursive: true });

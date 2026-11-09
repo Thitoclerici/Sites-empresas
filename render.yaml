@@ -1,16 +1,23 @@
 # Blueprint do Render (https://render.com). Crie com: Dashboard → New → Blueprint → este repositório.
+#
+# Plano GRATUITO: o disco do Render é apagado a cada reinício, então o banco e os arquivos
+# são copiados automaticamente para o Supabase Storage (plano gratuito). Preencha SUPABASE_URL
+# e SUPABASE_SERVICE_KEY. O serviço "dorme" após ~15 min sem uso e leva ~1 min para acordar.
+#
+# Para o plano pago com disco próprio, troque plan para "starter" e adicione:
+#   disk: { name: prospecta-data, mountPath: /var/data, sizeGB: 1 }
 services:
   - type: web
     name: prospecta
     runtime: docker
-    plan: starter            # necessário para o disco persistente (banco e uploads)
+    plan: free
     healthCheckPath: /api/health
-    disk:
-      name: prospecta-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: HUB_PASSWORD     # senha de acesso ao Hub (obrigatória)
+      - key: HUB_PASSWORD          # senha de acesso ao Hub (obrigatória)
+        sync: false
+      - key: SUPABASE_URL          # ex.: https://abcdefgh.supabase.co
+        sync: false
+      - key: SUPABASE_SERVICE_KEY  # chave secreta (secret / service_role) do projeto Supabase
         sync: false
       - key: SESSION_SECRET
         generateValue: true
@@ -18,7 +25,7 @@ services:
         value: Prospecta
       - key: OSM_CONTACT_EMAIL
         sync: false
-      - key: ANTHROPIC_API_KEY  # opcional
+      - key: ANTHROPIC_API_KEY     # opcional
         sync: false
-      - key: GOOGLE_PLACES_API_KEY  # opcional
+      - key: GOOGLE_PLACES_API_KEY # opcional
         sync: false

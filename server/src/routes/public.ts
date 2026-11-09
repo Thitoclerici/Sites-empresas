@@ -1,9 +1,8 @@
 // Rotas públicas (sem login): demonstrações compartilhadas por link.
 
 import type { FastifyInstance } from 'fastify';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { db, now, UPLOAD_DIR } from '../db.ts';
+import { db, now } from '../db.ts';
+import { readUpload } from '../storage.ts';
 import * as repo from '../repo.ts';
 import { renderSite } from '../../../shared/render.ts';
 import { USABLE_RIGHTS } from '../../../shared/types.ts';
@@ -34,7 +33,7 @@ export async function publicRoutes(app: FastifyInstance) {
     const site = repo.getSiteByShareToken(req.params.token);
     const a = site ? repo.getAsset(req.params.asset) : null;
     if (!site || !a || a.businessId !== site.businessId || !USABLE_RIGHTS.includes(a.rights)) return reply.code(404).send();
-    const buf = await readFile(join(UPLOAD_DIR, a.storedName));
+    const buf = await readUpload(a.storedName);
     reply.header('Content-Type', a.mime).header('Cache-Control', 'public, max-age=86400').header('X-Content-Type-Options', 'nosniff');
     if (a.mime === 'image/svg+xml') reply.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     return reply.send(buf);

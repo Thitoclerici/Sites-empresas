@@ -66,20 +66,26 @@ Os dados ficam em `data/prospecta.db` e os uploads em `data/uploads/` (ambos for
 
 > Se a máquina sai para a internet por um proxy HTTP, defina `NODE_USE_ENV_PROXY=1` para que o `fetch` do Node use `HTTPS_PROXY`.
 
-## 3.1 Colocar o Hub online (Render)
+## 3.1 Colocar o Hub online de graça (Render + Supabase)
 
-1. Crie uma conta em https://render.com (pode entrar com o GitHub).
-2. No painel: **New → Blueprint** e escolha o repositório `sites-empresas`. O Render lê o `render.yaml`.
-3. Preencha as variáveis pedidas:
-   - `HUB_PASSWORD`: a senha que você vai usar para entrar no Hub (obrigatória).
-   - `OSM_CONTACT_EMAIL`: seu e-mail de contato (recomendado pela política do OpenStreetMap).
-   - `ANTHROPIC_API_KEY` e `GOOGLE_PLACES_API_KEY`: opcionais, podem ficar em branco.
-4. Clique em **Apply**. Em alguns minutos o Hub fica disponível em `https://prospecta-XXXX.onrender.com`.
-5. Entre com a senha. Os links das demos usam esse mesmo endereço.
+O Render gratuito roda o Hub, mas apaga o disco a cada reinício. Por isso o banco e os arquivos são copiados automaticamente para o **Supabase Storage** (gratuito) e restaurados quando o Hub acorda.
 
-Custo: o plano *Starter* do Render (cerca de US$ 7/mês) é necessário porque o banco e os uploads ficam num disco persistente. No plano gratuito os dados seriam apagados a cada reinício.
+**Supabase (onde os dados ficam guardados)**
+1. Crie uma conta em https://supabase.com e um projeto novo (região São Paulo).
+2. Em **Project Settings → API Keys**, copie a **Project URL** e a chave **secreta** (*secret* ou *service_role*).
 
-Alternativa: qualquer serviço que rode Docker (Railway, Fly.io, um VPS) usando o `Dockerfile`, com um volume montado em `/var/data`.
+**Render (onde o Hub roda)**
+1. Crie uma conta em https://render.com (entre com o GitHub).
+2. **New → Blueprint** e escolha o repositório `Sites-empresas`.
+3. Preencha: `HUB_PASSWORD` (sua senha), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` e `OSM_CONTACT_EMAIL`. As chaves de IA e Google podem ficar em branco.
+4. **Apply**. Em 5 a 10 minutos o Hub fica disponível em `https://prospecta-XXXX.onrender.com`.
+
+Limitações do plano gratuito:
+- Após ~15 minutos sem uso o Hub "dorme"; o primeiro acesso seguinte (inclusive pelo link de uma demo) leva cerca de 1 minuto.
+- O Supabase gratuito pausa projetos sem atividade por cerca de uma semana; se acontecer, reative no painel do Supabase.
+- Alterações feitas nos últimos segundos antes de um desligamento inesperado podem se perder (no desligamento normal, os dados são salvos).
+
+Para não ter essas limitações: plano *Starter* do Render com disco (veja o comentário em `render.yaml`) ou qualquer serviço Docker com volume em `/var/data`.
 
 ## 4. Integrações
 

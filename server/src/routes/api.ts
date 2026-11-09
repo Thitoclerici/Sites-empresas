@@ -2,11 +2,9 @@
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod/v4';
-import { createWriteStream } from 'node:fs';
-import { readFile, unlink } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { pipeline } from 'node:stream/promises';
-import { db, json, now, uid, UPLOAD_DIR } from '../db.ts';
+import { db, json, now, uid } from '../db.ts';
+import { deleteUpload, readUpload, saveUpload } from '../storage.ts';
 import { SEGMENTS, getSegment } from '../../../shared/segments.ts';
 import { STAGES, USABLE_RIGHTS, type StageId } from '../../../shared/types.ts';
 import { SECTION_DEFS, type SiteSpec } from '../../../shared/site.ts';
@@ -44,7 +42,8 @@ function assetResolver(businessId: string, mode: 'url' | 'inline') {
       if (mode !== 'inline') return;
       for (const a of assets.values()) {
         if (!USABLE_RIGHTS.includes(a.rights) || a.mime === 'application/pdf') continue;
-        const buf = await readFile(join(UPLOAD_DIR, a.storedName));
+        const buf = await readUpload(a.storedName).catch(() => null);
+        if (!buf) continue;
         cache.set(a.id, `data:${a.mime};base64,${buf.toString('base64')}`);
       }
     },
@@ -188,7 +187,7 @@ export async function apiRoutes(app: FastifyInstance) {
   // LGPD: exclusão completa dos dados e arquivos do estabelecimento.
   app.delete<{ Params: { id: string } }>('/api/businesses/:id', async (req, reply) => {
     const assets = repo.listAssets(req.params.id);
-    for (const a of assets) await unlink(join(UPLOAD_DIR, a.storedName)).catch(() => undefined);
+    for (const a of assets) await deleteUpload(a.storedName);
     const r = db.prepare('DELETE FROM businesses WHERE id = ?').run(req.params.id);
     return r.changes ? { ok: true } : fail(reply, 404, 'Estabelecimento não encontrado');
   });
@@ -252,12 +251,14 @@ export async function apiRoutes(app: FastifyInstance) {
     const id = uid();
     const ext = extname(file.filename).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 6) || '.bin';
     const storedName = `${id}${ext}`;
-    await pipeline(file.file, createWriteStream(join(UPLOAD_DIR, storedName)));
-    if (file.file.truncated) {
-      await unlink(join(UPLOAD_DIR, storedName)).catch(() => undefined);
+    let data: Buffer;
+    try {
+      data = await file.toBuffer();
+    } catch {
       return fail(reply, 413, 'Arquivo excede 15 MB.');
     }
-    const size = (await readFile(join(UPLOAD_DIR, storedName))).length;
+    await saveUpload(storedName, data, file.mimetype);
+    const size = data.length;
     db.prepare('INSERT INTO assets (id, business_id, kind, filename, stored_name, mime, size, rights, source, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
       id, req.params.id, meta.kind, file.filename.slice(0, 200), storedName, file.mimetype, size, meta.rights, meta.source, meta.note ?? null, now(),
     );
@@ -294,7 +295,7 @@ export async function apiRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/api/assets/:id', async (req, reply) => {
     const a = repo.getAsset(req.params.id);
     if (!a) return fail(reply, 404, 'Arquivo não encontrado');
-    await unlink(join(UPLOAD_DIR, a.storedName)).catch(() => undefined);
+    await deleteUpload(a.storedName);
     db.prepare('DELETE FROM assets WHERE id = ?').run(a.id);
     repo.addActivity(a.businessId, 'asset', `Arquivo removido: ${a.filename}`);
     return { ok: true };
@@ -303,7 +304,7 @@ export async function apiRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/api/assets/:id/file', async (req, reply) => {
     const a = repo.getAsset(req.params.id);
     if (!a) return fail(reply, 404, 'Arquivo não encontrado');
-    const buf = await readFile(join(UPLOAD_DIR, a.storedName));
+    const buf = await readUpload(a.storedName);
     reply.header('Content-Type', a.mime).header('Cache-Control', 'private, max-age=3600').header('X-Content-Type-Options', 'nosniff');
     if (a.mime === 'image/svg+xml') reply.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     return reply.send(buf);
