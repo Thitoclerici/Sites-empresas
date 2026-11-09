@@ -131,6 +131,8 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sites ADD COLUMN share_views INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE sites ADD COLUMN share_last_view TEXT;
   CREATE UNIQUE INDEX idx_sites_share_token ON sites(share_token);`,
+  // 3: publicação do site aprovado (hospedagem e domínio)
+  `ALTER TABLE sites ADD COLUMN publish_info TEXT;`,
 ];
 
 function migrate() {

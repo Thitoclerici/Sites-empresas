@@ -153,4 +153,5 @@ export interface IntegrationStatus {
   googlePlaces: boolean;
   ai: boolean;
   aiModel?: string;
+  hosting?: boolean;
 }

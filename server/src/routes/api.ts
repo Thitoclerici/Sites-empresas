@@ -18,6 +18,8 @@ import { evaluateSite } from '../../../shared/quality.ts';
 import { aiEnabled, aiModel, regenerateSectionText, suggestImprovements } from '../services/ai.ts';
 import { ruleSuggestions } from '../services/suggestions.ts';
 import { googleEnabled } from '../providers/googlePlaces.ts';
+import { netlifyEnabled, NetlifyError } from '../providers/netlify.ts';
+import { checkDomain, connectDomain, dnsRecords, publish as publishSite, PublishError, removeDomain, unpublish } from '../services/publish.ts';
 import { HttpError } from '../providers/http.ts';
 import { randomBytes } from 'node:crypto';
 
@@ -81,7 +83,7 @@ export async function apiRoutes(app: FastifyInstance) {
 
   /* ---------- configuração ---------- */
   app.get('/api/config', async () => ({
-    integrations: { osm: true, googlePlaces: googleEnabled(), ai: aiEnabled(), aiModel: aiEnabled() ? aiModel() : undefined },
+    integrations: { osm: true, googlePlaces: googleEnabled(), ai: aiEnabled(), aiModel: aiEnabled() ? aiModel() : undefined, hosting: netlifyEnabled() },
     segments: SEGMENTS.map((s) => ({ id: s.id, label: s.label, plural: s.plural, contentKind: s.contentKind, presets: s.presets })),
     stages: STAGES,
     sectionDefs: SECTION_DEFS,
@@ -339,7 +341,7 @@ export async function apiRoutes(app: FastifyInstance) {
 
   app.get('/api/sites', async () => {
     const rows = db
-      .prepare('SELECT s.id, s.name, s.status, s.version, s.updated_at AS updatedAt, s.share_enabled AS shareEnabled, s.share_views AS shareViews, s.business_id AS businessId, b.name AS businessName, b.segment FROM sites s JOIN businesses b ON b.id = s.business_id ORDER BY s.updated_at DESC')
+      .prepare('SELECT s.id, s.name, s.status, s.version, s.updated_at AS updatedAt, s.share_enabled AS shareEnabled, s.share_views AS shareViews, s.publish_info AS publishInfo, s.business_id AS businessId, b.name AS businessName, b.segment FROM sites s JOIN businesses b ON b.id = s.business_id ORDER BY s.updated_at DESC')
       .all();
     return rows;
   });
@@ -365,6 +367,9 @@ export async function apiRoutes(app: FastifyInstance) {
     if (!site) return fail(reply, 404, 'Site não encontrado');
     const body = z.object({ name: z.string().min(1).optional(), status: z.enum(['draft', 'reviewed', 'approved_by_client']).optional(), note: z.string().optional() }).parse(req.body);
     if (body.name) db.prepare('UPDATE sites SET name = ?, updated_at = ? WHERE id = ?').run(body.name, now(), site.id);
+    if (body.status && site.status === 'published') {
+      return fail(reply, 409, 'Este site está no ar. Para mudar o status, retire-o do ar na tela de publicação.');
+    }
     if (body.status === 'approved_by_client' && !body.note?.trim()) {
       return fail(reply, 400, 'Registre como a aprovação do cliente foi obtida (ex.: "aprovado por e-mail em 10/11").');
     }
@@ -532,13 +537,62 @@ export async function apiRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // Publicação: ponto de validação humana obrigatório. Infraestrutura de hospedagem é Fase 2.
-  app.post<{ Params: { id: string } }>('/api/sites/:id/publish', async (req, reply) => {
+  /* ---------- publicação (hospedagem + domínio) ---------- */
+  // Ponto de validação humana: só publica com a aprovação do cliente registrada.
+  const publishView = (site: repo.SiteRecord) => ({
+    configured: netlifyEnabled(),
+    status: site.status,
+    approved: site.status === 'approved_by_client' || site.status === 'published',
+    version: site.version,
+    publish: site.publish,
+    outdated: !!site.publish?.publishedVersion && site.publish.publishedVersion < site.version,
+    records: site.publish ? dnsRecords(site.publish) : [],
+  });
+  const pubFail = (reply: FastifyReply, e: any) => {
+    if (e instanceof PublishError || e instanceof NetlifyError) return fail(reply, e.status >= 400 && e.status < 600 ? e.status : 502, e.message);
+    throw e;
+  };
+
+  app.get<{ Params: { id: string } }>('/api/sites/:id/publish', async (req, reply) => {
     const site = repo.getSite(req.params.id);
     if (!site) return fail(reply, 404, 'Site não encontrado');
-    const approval = db.prepare("SELECT 1 FROM approvals WHERE site_id = ? AND kind = 'client_approval'").get(site.id);
-    if (!approval || site.status !== 'approved_by_client') return fail(reply, 403, 'Publicação bloqueada: registre a aprovação do responsável pelo estabelecimento antes de publicar.');
-    return fail(reply, 501, 'Publicação com domínio próprio ainda não implementada (Fase 2). Use "Exportar HTML" para entregar os arquivos.');
+    return publishView(site);
+  });
+  app.post<{ Params: { id: string } }>('/api/sites/:id/publish', async (req, reply) => {
+    try {
+      return publishView(await publishSite(req.params.id));
+    } catch (e) {
+      return pubFail(reply, e);
+    }
+  });
+  app.delete<{ Params: { id: string } }>('/api/sites/:id/publish', async (req, reply) => {
+    try {
+      return publishView(await unpublish(req.params.id));
+    } catch (e) {
+      return pubFail(reply, e);
+    }
+  });
+  app.post<{ Params: { id: string } }>('/api/sites/:id/domain', async (req, reply) => {
+    const { domain } = z.object({ domain: z.string().min(3).max(253) }).parse(req.body);
+    try {
+      return publishView(await connectDomain(req.params.id, domain));
+    } catch (e) {
+      return pubFail(reply, e);
+    }
+  });
+  app.delete<{ Params: { id: string } }>('/api/sites/:id/domain', async (req, reply) => {
+    try {
+      return publishView(await removeDomain(req.params.id));
+    } catch (e) {
+      return pubFail(reply, e);
+    }
+  });
+  app.get<{ Params: { id: string } }>('/api/sites/:id/domain/check', async (req, reply) => {
+    try {
+      return await checkDomain(req.params.id);
+    } catch (e) {
+      return pubFail(reply, e);
+    }
   });
 
   /* ---------- CRM / painel ---------- */

@@ -25,6 +25,8 @@ services:
         value: Prospecta
       - key: OSM_CONTACT_EMAIL
         sync: false
+      - key: NETLIFY_AUTH_TOKEN    # hospedagem dos sites aprovados (botão Publicar)
+        sync: false
       - key: ANTHROPIC_API_KEY     # opcional
         sync: false
       - key: GOOGLE_PLACES_API_KEY # opcional

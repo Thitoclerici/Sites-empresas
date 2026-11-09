@@ -217,6 +217,20 @@ export interface SiteRecord {
   createdAt: string;
   updatedAt: string;
   share: { token?: string; enabled: boolean; views: number; lastView?: string };
+  publish: PublishInfo | null;
+}
+
+export interface PublishInfo {
+  provider: 'netlify';
+  siteId: string;
+  siteName: string;
+  url: string; // endereço gratuito do provedor (ex.: https://nome.netlify.app)
+  adminUrl?: string;
+  domain?: string; // domínio próprio do cliente (ex.: cafearoma.com.br)
+  domainKind?: 'apex' | 'subdomain';
+  publishedAt?: string;
+  publishedVersion?: number;
+  deployId?: string;
 }
 
 export function rowToSite(r: Row): SiteRecord {
@@ -230,6 +244,7 @@ export function rowToSite(r: Row): SiteRecord {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     share: { token: r.share_token ?? undefined, enabled: !!r.share_enabled, views: r.share_views ?? 0, lastView: r.share_last_view ?? undefined },
+    publish: json<PublishInfo | null>(r.publish_info, null),
   };
 }
 
@@ -279,4 +294,12 @@ export function listVersions(siteId: string) {
 export function getVersion(siteId: string, version: number) {
   const r = db.prepare('SELECT spec FROM site_versions WHERE site_id = ? AND version = ?').get(siteId, version) as Row | undefined;
   return r ? (json(r.spec, null) as SiteSpec | null) : null;
+}
+
+export function setPublishInfo(siteId: string, info: PublishInfo | null) {
+  db.prepare('UPDATE sites SET publish_info = ?, updated_at = ? WHERE id = ?').run(info ? JSON.stringify(info) : null, now(), siteId);
+}
+
+export function setSiteStatus(siteId: string, status: SiteRecord['status']) {
+  db.prepare('UPDATE sites SET status = ?, updated_at = ? WHERE id = ?').run(status, now(), siteId);
 }

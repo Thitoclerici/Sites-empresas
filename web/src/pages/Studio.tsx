@@ -65,6 +65,7 @@ export function StudioEditor() {
   const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [conceptOpen, setConceptOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const autoConcept = useRef(false);
 
   const load = useCallback(async () => {
@@ -188,6 +189,7 @@ export function StudioEditor() {
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <select className="select" value={site.status} onChange={(e) => setStatusModal(e.target.value as SiteStatus)} style={{ height: 32 }}>
               {(['draft', 'reviewed', 'approved_by_client'] as SiteStatus[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+              {site.status === 'published' && <option value="published" disabled>Publicada (no ar)</option>}
             </select>
             <button className="btn sm" onClick={undo} disabled={!history.length} title="Desfazer">↶</button>
             <button className="btn primary sm" onClick={() => save()} disabled={!dirty || saving}>{saving ? 'Salvando…' : 'Salvar'}</button>
@@ -229,6 +231,7 @@ export function StudioEditor() {
             <RegenerateButton siteId={site.id} dirty={dirty} onDone={load} aiEnabled={!!config?.integrations.ai} />
             <button className="btn sm" onClick={() => (dirty ? save().then(() => setConceptOpen(true)) : setConceptOpen(true))}>◐ Direção visual</button>
             <button className="btn primary sm" onClick={() => (dirty ? save().then(() => setShareOpen(true)) : setShareOpen(true))}>➤ Enviar</button>
+            <button className="btn sm" onClick={() => (dirty ? save().then(() => setPublishOpen(true)) : setPublishOpen(true))}>🌐 {site.status === 'published' ? 'No ar' : 'Publicar'}</button>
             <a className="btn sm" href={`/api/sites/${site.id}/preview`} target="_blank" rel="noreferrer" onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de abrir a prévia em nova aba.', true))}>Abrir prévia</a>
             <a className="btn sm" href={`/api/sites/${site.id}/export`} onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de exportar.', true))}>Exportar HTML</a>
           </div>
@@ -246,6 +249,7 @@ export function StudioEditor() {
       </div>
 
       {conceptOpen && <ConceptPicker siteId={site.id} resolveAsset={resolveAsset} onClose={() => setConceptOpen(false)} onChosen={() => (setConceptOpen(false), load())} />}
+      {publishOpen && <PublishModal siteId={site.id} businessName={detail.business.name} onClose={() => (setPublishOpen(false), load())} onApprove={() => (setPublishOpen(false), setStatusModal('approved_by_client'))} />}
       {shareOpen && <ShareModal siteId={site.id} businessName={detail.business.name} unverified={unverifiedCount} status={site.status} onClose={() => setShareOpen(false)} />}
       {statusModal && (
         <StatusModal
@@ -790,5 +794,154 @@ function QualityCard({ siteId, version, dirty, onGo }: { siteId: string; version
         </div>
       ))}
     </div>
+  );
+}
+
+/* ---------- publicação: hospedagem e domínio ---------- */
+
+interface PublishView {
+  configured: boolean;
+  status: SiteStatus;
+  approved: boolean;
+  version: number;
+  outdated: boolean;
+  publish: null | { siteName: string; url: string; adminUrl?: string; domain?: string; domainKind?: string; publishedAt?: string; publishedVersion?: number };
+  records: { type: string; name: string; host: string; value: string }[];
+}
+interface DomainCheckUI { domain: string; dnsOk: boolean; httpsOk: boolean; message: string; records: { type: string; host: string; value: string; ok: boolean; found: string[] }[] }
+
+function PublishModal({ siteId, businessName, onClose, onApprove }: { siteId: string; businessName: string; onClose: () => void; onApprove: () => void }) {
+  const { notify } = useApp();
+  const [v, setV] = useState<PublishView | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [domain, setDomain] = useState('');
+  const [check, setCheck] = useState<DomainCheckUI | null>(null);
+  const load = () => api.get<PublishView>(`/api/sites/${siteId}/publish`).then(setV).catch((e) => notify(e.message, true));
+  useEffect(() => {
+    load();
+  }, [siteId]);
+  const run = async (key: string, fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(key);
+    try {
+      await fn();
+      if (ok) notify(ok);
+    } catch (e: any) {
+      notify(e.message, true);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const copy = async (t: string) => {
+    try {
+      await navigator.clipboard.writeText(t);
+      notify('Copiado');
+    } catch {
+      notify('Copie manualmente', true);
+    }
+  };
+  const live = v?.publish && v.status === 'published';
+  const liveUrl = v?.publish?.url;
+
+  return (
+    <Modal title={`Publicar o site — ${businessName}`} onClose={onClose}>
+      {!v ? <Spinner /> : (
+        <div className="stack" style={{ gap: 14 }}>
+          {/* Passo 1: aprovação */}
+          <div className="row" style={{ gap: 8 }}><span className={`tag ${v.approved ? 'ok' : 'warn'}`}>1</span><b>Aprovação do cliente</b></div>
+          {v.approved ? (
+            <div className="small muted">Aprovação registrada. A faixa de “demonstração” não aparece no site publicado.</div>
+          ) : (
+            <div className="alert warn small">
+              O site só pode ir ao ar depois que o responsável pelo estabelecimento aprovar. <button className="btn sm" style={{ marginLeft: 6 }} onClick={onApprove}>Registrar aprovação</button>
+            </div>
+          )}
+
+          {/* Passo 2: hospedagem */}
+          <div className="row" style={{ gap: 8 }}><span className={`tag ${live ? 'ok' : v.approved ? 'info' : ''}`}>2</span><b>Colocar no ar (hospedagem Netlify)</b></div>
+          {!v.configured ? (
+            <div className="alert info small">
+              <b>Hospedagem ainda não configurada.</b> Uma vez só:
+              <ol style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                <li>Crie uma conta gratuita em <a href="https://app.netlify.com/signup" target="_blank" rel="noreferrer">netlify.com</a>.</li>
+                <li>Em <b>User settings → Applications → Personal access tokens</b>, clique em <b>New access token</b> e copie o token.</li>
+                <li>No Render, abra o serviço do Hub → <b>Environment</b> → adicione <span className="mono">NETLIFY_AUTH_TOKEN</span> com o token → <b>Save Changes</b>.</li>
+              </ol>
+            </div>
+          ) : live ? (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input className="input mono" readOnly value={liveUrl ?? ''} />
+                <button className="btn" onClick={() => copy(liveUrl!)}>Copiar</button>
+                <a className="btn" href={liveUrl} target="_blank" rel="noreferrer">Abrir</a>
+              </div>
+              <div className="small faint">Publicado em {fmtDate(v.publish!.publishedAt)} (versão {v.publish!.publishedVersion}). Este endereço gratuito já funciona{v.publish!.domain ? `; https://${v.publish!.domain} passa a funcionar quando o DNS estiver configurado (passo 3)` : ''}.</div>
+              {v.outdated && <div className="alert warn small">Há alterações salvas que ainda não estão no ar (versão {v.version}).</div>}
+              <div className="row">
+                <button className="btn primary" disabled={!!busy} onClick={() => run('pub', async () => setV(await api.post<PublishView>(`/api/sites/${siteId}/publish`)), 'Site atualizado no ar')}>
+                  {busy === 'pub' ? <><Spinner /> Publicando…</> : 'Publicar alterações'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="small muted">Publica o site (com as imagens e o cardápio autorizados) num endereço gratuito com HTTPS, que nunca “dorme”. Depois você conecta o domínio do cliente.</div>
+              <div><button className="btn primary" disabled={!v.approved || !!busy} onClick={() => run('pub', async () => setV(await api.post<PublishView>(`/api/sites/${siteId}/publish`)), 'Site publicado!')}>
+                {busy === 'pub' ? <><Spinner /> Publicando… (até 1 minuto)</> : 'Publicar agora'}
+              </button></div>
+            </div>
+          )}
+
+          {/* Passo 3: domínio */}
+          <div className="row" style={{ gap: 8 }}><span className={`tag ${check?.httpsOk ? 'ok' : v.publish?.domain ? 'info' : ''}`}>3</span><b>Domínio do cliente</b></div>
+          {!live ? (
+            <div className="small faint">Disponível depois de publicar.</div>
+          ) : !v.publish!.domain ? (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="small muted">O ideal é o próprio cliente registrar o domínio no nome dele (CPF/CNPJ) em <a href="https://registro.br" target="_blank" rel="noreferrer">registro.br</a>. Depois, informe aqui:</div>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input className="input" placeholder="ex.: cafearoma.com.br" value={domain} onChange={(e) => setDomain(e.target.value)} />
+                <button className="btn" disabled={!domain.trim() || !!busy} onClick={() => run('dom', async () => setV(await api.post<PublishView>(`/api/sites/${siteId}/domain`, { domain })), 'Domínio vinculado')}>{busy === 'dom' ? <Spinner /> : 'Conectar'}</button>
+              </div>
+            </div>
+          ) : (
+            <div className="stack" style={{ gap: 8 }}>
+              <div className="small">No <b>Registro.br</b>: entre em <b>Meus domínios</b> → clique em <b>{v.publish!.domain}</b> → <b>DNS</b> → <b>Editar zona</b> (se pedir, ative o “Modo avançado”) e crie estes registros:</div>
+              <table className="table" style={{ fontSize: 13 }}>
+                <thead><tr><th>Tipo</th><th>Nome</th><th>Valor</th><th></th></tr></thead>
+                <tbody>
+                  {v.records.map((r) => {
+                    const c = check?.records.find((x) => x.host === r.host && x.type === r.type);
+                    return (
+                      <tr key={r.host + r.type}>
+                        <td><b>{r.type}</b></td>
+                        <td className="mono">{r.name || '(deixe em branco)'}</td>
+                        <td className="mono">{r.value} <button className="icon-btn" onClick={() => copy(r.value)}>⧉</button></td>
+                        <td>{c ? <span className={`tag ${c.ok ? 'ok' : 'warn'}`}>{c.ok ? 'ok' : 'pendente'}</span> : null}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="small faint">Se já existir um registro A ou CNAME com o mesmo nome, edite-o em vez de criar outro. A propagação leva de minutos a algumas horas.</div>
+              <div className="row">
+                <button className="btn" disabled={!!busy} onClick={() => run('chk', async () => setCheck(await api.get<DomainCheckUI>(`/api/sites/${siteId}/domain/check`)))}>{busy === 'chk' ? <Spinner /> : 'Verificar domínio'}</button>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run('rmd', async () => (setV(await api.del<PublishView>(`/api/sites/${siteId}/domain`)), setCheck(null)))}>Trocar domínio</button>
+              </div>
+              {check && <div className={`alert small ${check.httpsOk ? 'ok' : check.dnsOk ? 'info' : 'warn'}`}>{check.message}</div>}
+            </div>
+          )}
+
+          {live && (
+            <>
+              <div className="sep" />
+              <div className="row between small">
+                {v.publish!.adminUrl ? <a href={v.publish!.adminUrl} target="_blank" rel="noreferrer">Abrir no painel da Netlify</a> : <span />}
+                <button className="btn ghost sm danger" disabled={!!busy} onClick={() => confirm('Retirar o site do ar? O endereço deixará de funcionar.') && run('unp', async () => setV(await api.del<PublishView>(`/api/sites/${siteId}/publish`)), 'Site retirado do ar')}>Retirar do ar</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }

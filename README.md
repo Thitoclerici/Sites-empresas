@@ -107,12 +107,24 @@ Limitações do plano gratuito:
 
 Para não ter essas limitações: plano *Starter* do Render com disco (veja o comentário em `render.yaml`) ou qualquer serviço Docker com volume em `/var/data`.
 
+## 3.2 Publicar o site do cliente (domínio próprio)
+
+Depois que o cliente aprova a demonstração:
+
+1. No Estúdio, marque **"Aprovada pelo cliente"** registrando como a aprovação foi obtida (sem isso, a publicação fica bloqueada).
+2. Clique em **🌐 Publicar** → **Publicar agora**. O site (HTML + imagens e cardápio autorizados) vai para a **Netlify**, com HTTPS, num endereço gratuito `https://nome.netlify.app` que nunca "dorme".
+3. Informe o domínio do cliente (registrado por ele em registro.br). A tela mostra os registros DNS para criar no Registro.br (`A` → IP da Netlify e `CNAME www` → endereço da Netlify) e o botão **Verificar domínio** confirma DNS e HTTPS.
+4. Editou o site? **Publicar alterações** atualiza o que está no ar. **Retirar do ar** remove a hospedagem.
+
+Configuração (uma vez): crie uma conta gratuita na Netlify, gere um *Personal access token* e defina `NETLIFY_AUTH_TOKEN` nas variáveis do Render.
+
 ## 4. Integrações
 
 | Integração | Obrigatória? | Variável | O que habilita |
 |---|---|---|---|
 | OpenStreetMap (Overpass + Nominatim) | Já funciona, sem chave | `OSM_CONTACT_EMAIL` (recomendado pela política do Nominatim), `OVERPASS_URL` (lista separada por vírgula) | Busca, geocodificação, dados básicos |
 | Anthropic Claude | Opcional (recomendada) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (padrão `claude-opus-5-5`) | Textos comerciais personalizados, escolha da paleta, regeneração de seções e sugestões de melhoria. Sem a chave, o gerador usa textos modelo por segmento, marcados para revisão. |
+| Netlify | Para publicar sites aprovados | `NETLIFY_AUTH_TOKEN` | Botão Publicar: hospedagem com HTTPS e domínio próprio do cliente |
 | Google Places API (New) | Opcional (recomendada) | `GOOGLE_PLACES_API_KEY` | Confirmar ausência de site ("sem site encontrado"), telefone, horários e status de funcionamento |
 
 As chaves ficam só no servidor (`.env`) e nunca são enviadas à interface.

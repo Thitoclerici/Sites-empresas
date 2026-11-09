@@ -104,3 +104,23 @@ test('avaliação de qualidade aponta falta de contato e de conteúdo', () => {
   assert.equal(q.checks.find((c) => c.id === 'contact')!.status, 'fail');
   assert.equal(q.checks.find((c) => c.id === 'content')!.status, 'fail');
 });
+
+import { createZip } from '../src/lib/zip.ts';
+import { normalizeDomain } from '../src/services/publish.ts';
+import { inflateRawSync } from 'node:zlib';
+
+test('zip gerado é válido e preserva o conteúdo', () => {
+  const z = createZip([{ name: 'index.html', data: Buffer.from('<h1>olá</h1>') }, { name: 'assets/a.txt', data: Buffer.from('x'.repeat(1000)) }]);
+  assert.equal(z.readUInt32LE(0), 0x04034b50);
+  assert.equal(z.readUInt32LE(z.length - 22), 0x06054b50);
+  const nameLen = z.readUInt16LE(26);
+  const compLen = z.readUInt32LE(18);
+  assert.equal(inflateRawSync(z.subarray(30 + nameLen, 30 + nameLen + compLen)).toString(), '<h1>olá</h1>');
+});
+
+test('normaliza domínios do cliente (raiz x subdomínio)', () => {
+  assert.deepEqual(normalizeDomain('https://www.CafeAroma.com.br/'), { domain: 'cafearoma.com.br', kind: 'apex', apex: 'cafearoma.com.br' });
+  assert.equal(normalizeDomain('cafe.minhaagencia.com.br').kind, 'subdomain');
+  assert.equal(normalizeDomain('barbearia.com').kind, 'apex');
+  assert.throws(() => normalizeDomain('não é domínio'));
+});
