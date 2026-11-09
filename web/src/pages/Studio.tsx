@@ -143,8 +143,10 @@ export function StudioEditor() {
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
-  const usable = useMemo(() => (detail?.assets ?? []).filter((a) => USABLE_RIGHTS.includes(a.rights) && a.mime.startsWith('image/')), [detail]);
-  const resolveAsset = useCallback((aid: string) => (usable.some((a) => a.id === aid) ? `/api/assets/${aid}/file` : null), [usable]);
+  const allowed = useMemo(() => (detail?.assets ?? []).filter((a) => USABLE_RIGHTS.includes(a.rights)), [detail]);
+  const usable = useMemo(() => allowed.filter((a) => a.mime.startsWith('image/') && a.kind !== 'menu'), [allowed]);
+  const menuDocs = useMemo(() => allowed.filter((a) => a.kind === 'menu'), [allowed]);
+  const resolveAsset = useCallback((aid: string) => (allowed.some((a) => a.id === aid) ? `/api/assets/${aid}/file` : null), [allowed]);
 
   // Prévia ao vivo (renderizador compartilhado), com debounce e preservação da rolagem.
   const frame = useRef<HTMLIFrameElement>(null);
@@ -196,7 +198,7 @@ export function StudioEditor() {
         </div>
         <div className="studio-body">
           {tab === 'sections' && <SectionsTab spec={spec} update={update} selected={selected} onSelect={(sid) => { setSelected(sid); frame.current?.contentWindow?.postMessage({ type: 'scroll-to', id: sid }, '*'); }} onEdit={(sid) => (setSelected(sid), setTab('content'))} />}
-          {tab === 'content' && (sel ? <ContentTab key={sel.id} section={sel} siteId={site.id} spec={spec} update={update} assets={usable} aiEnabled={!!config?.integrations.ai} /> : <div className="muted small">Selecione uma seção na lista ou clique nela na prévia.</div>)}
+          {tab === 'content' && (sel ? <ContentTab key={sel.id} section={sel} siteId={site.id} spec={spec} update={update} assets={usable} docs={menuDocs} aiEnabled={!!config?.integrations.ai} /> : <div className="muted small">Selecione uma seção na lista ou clique nela na prévia.</div>)}
           {tab === 'theme' && <ThemeTab spec={spec} update={update} detail={detail} assets={usable} />}
           {tab === 'seo' && <SeoTab spec={spec} update={update} />}
           {tab === 'tips' && <TipsTab siteId={site.id} dirty={dirty} onGo={(sid) => sid && (setSelected(sid), setTab('content'))} />}
@@ -363,7 +365,7 @@ function OriginTag({ o }: { o?: string }) {
   return <span className={`origin ${o}`} title={ORIGIN_LABEL[o as keyof typeof ORIGIN_LABEL]}>{{ fact: 'verificado', user: 'editado', ai: 'IA', template: 'modelo' }[o] ?? o}</span>;
 }
 
-function ContentTab({ section, siteId, spec, update, assets, aiEnabled }: { section: Section; siteId: string; spec: SiteSpec; update: (fn: (s: SiteSpec) => SiteSpec) => void; assets: Asset[]; aiEnabled: boolean }) {
+function ContentTab({ section, siteId, spec, update, assets, docs, aiEnabled }: { section: Section; siteId: string; spec: SiteSpec; update: (fn: (s: SiteSpec) => SiteSpec) => void; assets: Asset[]; docs: Asset[]; aiEnabled: boolean }) {
   const { notify } = useApp();
   const def = getSectionDef(section.type);
   const [instruction, setInstruction] = useState('');
@@ -406,7 +408,7 @@ function ContentTab({ section, siteId, spec, update, assets, aiEnabled }: { sect
           <label className="row" style={{ marginTop: 6 }}><input type="checkbox" onChange={(e) => e.target.checked && update((s) => ((s.sections.find((x) => x.id === section.id)!.pending = []), s))} /> Marcar pendências como resolvidas</label>
         </div>
       )}
-      {def?.fields.map((f) => <FieldEditor key={f.key} field={f} value={section.props[f.key]} origin={section.origins[f.key]} onChange={(v) => setProp(f.key, v)} assets={assets} />)}
+      {def?.fields.map((f) => <FieldEditor key={f.key} field={f} value={section.props[f.key]} origin={section.origins[f.key]} onChange={(v) => setProp(f.key, v)} assets={assets} docs={docs} />)}
       <div className="sep" />
       <div className="stack">
         <h3>Regenerar textos com IA</h3>
@@ -428,7 +430,7 @@ function TextBlock({ value, toText, fromText, rows, placeholder, help }: { value
   );
 }
 
-function FieldEditor({ field, value, origin, onChange, assets }: { field: FieldDef; value: any; origin?: string; onChange: (v: any) => void; assets: Asset[] }) {
+function FieldEditor({ field, value, origin, onChange, assets, docs = [] }: { field: FieldDef; value: any; origin?: string; onChange: (v: any) => void; assets: Asset[]; docs?: Asset[] }) {
   const label = (
     <span className="row between" style={{ gap: 6 }}>
       {field.label} <OriginTag o={origin} />
@@ -451,6 +453,16 @@ function FieldEditor({ field, value, origin, onChange, assets }: { field: FieldD
           </div>
           <span className="help">{assets.length ? 'Apenas imagens com uso autorizado.' : 'Nenhuma imagem autorizada. Envie na página de Investigação.'}</span>
         </div>
+      );
+    case 'file':
+      return (
+        <label className="field">{label}
+          <select className="select" value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+            <option value="">Nenhum</option>
+            {docs.map((a) => <option key={a.id} value={a.id}>{a.mime === 'application/pdf' ? 'PDF' : 'Imagem'} — {a.filename}</option>)}
+          </select>
+          <span className="help">{docs.length ? field.help : 'Nenhum arquivo de cardápio autorizado. Anexe na página de Investigação.'}</span>
+        </label>
       );
     case 'images': {
       const list: string[] = value ?? [];

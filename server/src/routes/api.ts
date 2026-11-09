@@ -199,15 +199,27 @@ export async function apiRoutes(app: FastifyInstance) {
   });
 
   /* ---------- fatos ---------- */
-  const FactBody = z.object({ field: z.string().min(1).max(60), value: z.unknown(), note: z.string().optional() });
+  const FactBody = z
+    .object({ field: z.string().min(1).max(60), value: z.unknown(), note: z.string().optional() })
+    .refine((f) => f.field !== 'menu_url' || (typeof f.value === 'string' && /^https?:\/\/\S+$/i.test(f.value.trim())), { message: 'Informe um link começando com http:// ou https://', path: ['value'] });
   app.post<{ Params: { id: string } }>('/api/businesses/:id/facts', async (req, reply) => {
     if (!repo.getBusiness(req.params.id)) return fail(reply, 404, 'Estabelecimento não encontrado');
     const f = FactBody.parse(req.body);
     const fact = repo.addFact(req.params.id, { field: f.field, value: f.value, status: 'user_provided', source: 'Operador', note: f.note });
     repo.addActivity(req.params.id, 'fact', `Informação complementada: ${f.field}`);
     // Mantém campos principais do registro sincronizados.
-    if (f.field === 'phone' && typeof f.value === 'string') repo.updateBusinessFields(req.params.id, { phone: f.value });
-    if (f.field === 'socials' && typeof f.value === 'object') repo.updateBusinessFields(req.params.id, { socials: f.value });
+    const b = repo.getBusiness(req.params.id)!;
+    if (f.field === 'phone' && typeof f.value === 'string') repo.updateBusinessFields(b.id, { phone: f.value });
+    if (f.field === 'socials' && typeof f.value === 'object') repo.updateBusinessFields(b.id, { socials: f.value });
+    if (f.field === 'name' && typeof f.value === 'string' && f.value.trim()) repo.updateBusinessFields(b.id, { name: f.value.trim() });
+    if (f.field === 'address') {
+      const v = f.value as any;
+      const formatted = typeof v === 'string' ? v.trim() : String(v?.formatted ?? '').trim();
+      if (formatted) repo.updateBusinessFields(b.id, { address: { ...b.address, formatted } });
+    }
+    if (f.field === 'website' && typeof f.value === 'string') {
+      repo.updateBusinessFields(b.id, f.value.trim() ? { website: f.value.trim(), website_status: 'has_site' } : { website: null });
+    }
     return fact;
   });
   app.post<{ Params: { id: string } }>('/api/facts/:id/confirm', async (req, reply) => {

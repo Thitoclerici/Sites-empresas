@@ -524,9 +524,27 @@ function card(ctx: Ctx, i: Item) {
   }${i.price || i.extra ? `<div class="card-meta"><span class="price">${esc(i.price ?? '')}</span><span class="extra">${esc(i.extra ?? '')}</span></div>` : ''}</div></article>`;
 }
 
+/** Botões para o cardápio/tabela anexado (link e/ou arquivo autorizado). */
+function docButtons(ctx: Ctx, p: Record<string, any>, label: string): string {
+  const file = p.menuFile ? ctx.img(p.menuFile) : null;
+  const link = p.menuLink && /^https?:/i.test(p.menuLink) ? p.menuLink : null;
+  if (!file && !link) return '';
+  const btns = [
+    file ? `<a class="btn" href="${esc(file)}" target="_blank" rel="noopener">${esc(label)}${link ? ' (arquivo)' : ''} ${icon('arrow')}</a>` : '',
+    link ? `<a class="btn${file ? ' ghost' : ''}" href="${safeHref(link)}" target="_blank" rel="noopener">${esc(file ? `${label} (on-line)` : label)} ${icon('arrow')}</a>` : '',
+  ].join('');
+  return `<div class="btns" style="justify-content:center;margin-top:36px">${btns}</div>`;
+}
+
+const DOC_LABEL: Record<string, string> = { menu: 'Ver cardápio completo', services: 'Ver tabela de preços', products: 'Ver catálogo completo' };
+
 function menu(ctx: Ctx, s: Section): string | null {
   const p = s.props;
   const groups: ItemGroup[] = (p.groups ?? []).filter((g: ItemGroup) => g && !itemsEmpty(g.items));
+  const docs = docButtons(ctx, p, DOC_LABEL.menu!);
+  if (!groups.length && docs) {
+    return `<section id="cardapio" class="alt"><div class="wrap">${secHead(ctx, p.title, p.intro, { center: true, iconName: ctx.segIcon })}${docs}</div>${pendingBox(ctx, s)}</section>`;
+  }
   if (!groups.length) return ctx.editor ? emptySection(ctx, s, p.title || 'Cardápio', 'cardapio') : null;
   const body =
     s.variant === 1
@@ -539,14 +557,19 @@ function menu(ctx: Ctx, s: Section): string | null {
           .join('')}</div>`;
   return `<section id="cardapio" class="alt"><div class="wrap">${secHead(ctx, p.title, p.intro, { center: true, iconName: ctx.segIcon })}${body}${
     p.note ? `<p class="note" style="text-align:center">${esc(p.note)}</p>` : ''
-  }</div>${pendingBox(ctx, s)}</section>`;
+  }${docs}</div>${pendingBox(ctx, s)}</section>`;
 }
 
 function itemsSection(ctx: Ctx, s: Section, anchor: string): string | null {
   const p = s.props;
   const items: Item[] = (p.items ?? []).filter((i: Item) => i?.name);
-  if (!items.length) return ctx.editor ? emptySection(ctx, s, p.title || 'Itens', anchor) : null;
   const svcIcon = ctx.segIcon === 'pole' ? 'scissors' : ctx.segIcon;
+  const headIcon = s.type === 'services' ? svcIcon : 'bag';
+  const docs = docButtons(ctx, p, DOC_LABEL[s.type] ?? 'Ver mais');
+  if (!items.length && docs) {
+    return `<section id="${anchor}" class="alt"><div class="wrap">${secHead(ctx, p.title, p.intro, { center: true, iconName: headIcon })}${docs}</div>${pendingBox(ctx, s)}</section>`;
+  }
+  if (!items.length) return ctx.editor ? emptySection(ctx, s, p.title || 'Itens', anchor) : null;
   const body =
     s.type === 'services' && s.variant !== 1
       ? `<div class="svc-list" style="margin:0 auto">${items
@@ -558,7 +581,7 @@ function itemsSection(ctx: Ctx, s: Section, anchor: string): string | null {
           )
           .join('')}</div>`
       : `<div class="cards">${items.map((i) => card(ctx, i)).join('')}</div>`;
-  return `<section id="${anchor}" class="alt"><div class="wrap">${secHead(ctx, p.title, p.intro, { center: true, iconName: s.type === 'services' ? svcIcon : 'bag' })}${body}</div>${pendingBox(ctx, s)}</section>`;
+  return `<section id="${anchor}" class="alt"><div class="wrap">${secHead(ctx, p.title, p.intro, { center: true, iconName: headIcon })}${body}${docs}</div>${pendingBox(ctx, s)}</section>`;
 }
 
 function gallery(ctx: Ctx, s: Section): string | null {

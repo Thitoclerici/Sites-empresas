@@ -211,6 +211,8 @@ export function computeMissing(businessId: string): MissingItem[] {
     if (field === 'opening_hours') return !!(facts.opening_hours || facts.opening_hours_text);
     if (field === 'whatsapp') return !!facts.whatsapp && facts.whatsapp.status !== 'unconfirmed';
     if (field === 'description') return !!facts.description && facts.description.status !== 'ai_suggested';
+    // Cardápio/serviços/produtos: itens digitados OU cardápio anexado (link ou arquivo autorizado).
+    if (field === seg.contentKind && (facts.menu_url || assets.some((a) => a.kind === 'menu'))) return true;
     const f = facts[field];
     if (!f) return false;
     return Array.isArray(f.value) ? f.value.length > 0 : !!f.value;

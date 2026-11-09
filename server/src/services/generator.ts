@@ -94,6 +94,9 @@ export async function generateSpec(businessId: string, opts: { useAi?: boolean }
   const T = (aiText: string | undefined, fallback: string): [string, Origin] => (aiText && aiText.trim() ? [aiText.trim(), 'ai'] : [fallback, 'template']);
 
   const logo = assets.find((a) => a.kind === 'logo');
+  // Cardápio anexado: link informado (ou encontrado) e/ou arquivo autorizado mais recente.
+  const menuLink = CONFIRMED(facts.menu_url) ? String(facts.menu_url!.value) : undefined;
+  const menuFile = assets.find((a) => a.kind === 'menu')?.id;
   const photos = assets.filter((a) => a.kind === 'photo');
   const theme = pickTheme(seg, b.name, copy?.presetIndex, CONFIRMED(facts.brand_color) ? (facts.brand_color!.value as string) : undefined, logo?.palette);
 
@@ -174,8 +177,14 @@ export async function generateSpec(businessId: string, opts: { useAi?: boolean }
             : kind === 'services'
               ? 'Lista de serviços e preços não encontrada — cadastre os serviços oferecidos.'
               : 'Produtos não encontrados — cadastre os produtos em destaque.';
-        const props = kind === 'menu' ? { title, intro, groups: contentItems.menu, note: hasContent.menu ? 'Preços e disponibilidade sujeitos a alteração.' : '' } : { title, intro, items: contentItems[kind] };
-        sections.push(sec(kind, props, { title: 'template', intro: oi }, hasContent[kind] ? [] : [pendingMsg]));
+        // Cardápio/tabela anexado (link ou arquivo) vale para a seção principal de conteúdo.
+        const doc = kind === seg.contentKind ? { menuLink: menuLink ?? '', menuFile: menuFile ?? '' } : { menuLink: '', menuFile: '' };
+        const hasDoc = !!(doc.menuLink || doc.menuFile);
+        const props =
+          kind === 'menu'
+            ? { title, intro, groups: contentItems.menu, note: hasContent.menu ? 'Preços e disponibilidade sujeitos a alteração.' : '', ...doc }
+            : { title, intro, items: contentItems[kind], ...doc };
+        sections.push(sec(kind, props, { title: 'template', intro: oi }, hasContent[kind] || hasDoc ? [] : [pendingMsg]));
         break;
       }
       case 'gallery':
@@ -274,9 +283,9 @@ export function computeNav(spec: SiteSpec, navMap?: Record<string, { label: stri
     const p = s.props;
     switch (s.type) {
       case 'about': return !!p.text;
-      case 'menu': return (p.groups ?? []).some((g: ItemGroup) => g.items?.some((i) => i.name));
+      case 'menu': return !!(p.menuLink || p.menuFile) || (p.groups ?? []).some((g: ItemGroup) => g.items?.some((i) => i.name));
       case 'services':
-      case 'products': return (p.items ?? []).some((i: Item) => i.name);
+      case 'products': return !!(p.menuLink || p.menuFile) || (p.items ?? []).some((i: Item) => i.name);
       case 'gallery': return (p.images ?? []).length > 0;
       case 'hours': return (p.rows ?? []).length > 0;
       case 'contact': return true;

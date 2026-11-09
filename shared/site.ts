@@ -74,7 +74,7 @@ export interface SiteSpec {
   meta: { generatedAt: string; generator: 'ai' | 'template'; model?: string };
 }
 
-export type FieldType = 'text' | 'textarea' | 'url' | 'image' | 'images' | 'groups' | 'items' | 'rows' | 'highlights' | 'toggle';
+export type FieldType = 'text' | 'textarea' | 'url' | 'image' | 'images' | 'file' | 'groups' | 'items' | 'rows' | 'highlights' | 'toggle';
 
 export interface FieldDef {
   key: string;
@@ -139,6 +139,8 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: 'intro', label: 'Introdução', type: 'textarea' },
       { key: 'groups', label: 'Categorias e itens', type: 'groups' },
       { key: 'note', label: 'Observação (ex.: preços sujeitos a alteração)', type: 'text' },
+      { key: 'menuLink', label: 'Link do cardápio completo (opcional)', type: 'url', help: 'Ex.: cardápio digital, PDF on-line.' },
+      { key: 'menuFile', label: 'Arquivo do cardápio (PDF ou imagem)', type: 'file', help: 'Envie na página de Investigação. Só arquivos com uso autorizado.' },
     ],
   },
   {
@@ -150,6 +152,8 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: 'title', label: 'Título', type: 'text' },
       { key: 'intro', label: 'Introdução', type: 'textarea' },
       { key: 'items', label: 'Serviços', type: 'items' },
+      { key: 'menuLink', label: 'Link do tabela de preços (opcional)', type: 'url', help: 'Ex.: cardápio digital, PDF on-line.' },
+      { key: 'menuFile', label: 'Arquivo da tabela de preços (PDF ou imagem)', type: 'file', help: 'Envie na página de Investigação. Só arquivos com uso autorizado.' },
     ],
   },
   {
@@ -161,6 +165,8 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: 'title', label: 'Título', type: 'text' },
       { key: 'intro', label: 'Introdução', type: 'textarea' },
       { key: 'items', label: 'Produtos', type: 'items' },
+      { key: 'menuLink', label: 'Link do catálogo (opcional)', type: 'url', help: 'Ex.: cardápio digital, PDF on-line.' },
+      { key: 'menuFile', label: 'Arquivo do catálogo (PDF ou imagem)', type: 'file', help: 'Envie na página de Investigação. Só arquivos com uso autorizado.' },
     ],
   },
   {

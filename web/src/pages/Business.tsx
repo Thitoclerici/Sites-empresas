@@ -73,6 +73,7 @@ export function BusinessPage() {
   const { data: d, setData, reload, error } = useLoad<Detail>(`/api/businesses/${id}`);
   const [busy, setBusy] = useState<string | null>(null);
   const [steps, setSteps] = useState<{ source: string; status: string; message: string; facts: number }[] | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const autoRan = useRef(false);
 
   async function runInvestigation() {
@@ -160,8 +161,9 @@ export function BusinessPage() {
 
       <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)', alignItems: 'start' }}>
         <div className="stack" style={{ gap: 16 }}>
+          <MenuPanel detail={d} onChange={reload} />
           <div className="card">
-            <div className="card-head"><h2>Informações coletadas</h2><span className="small muted">{d.facts.length} registros com fonte</span></div>
+            <div className="card-head"><h2>Informações coletadas</h2><span className="small muted">Clique em “Editar” para corrigir qualquer dado — sua versão passa a valer</span></div>
             <div className="card-pad">
               {grouped.length === 0 && <Empty title="Nada coletado ainda">Clique em “Investigar” para consultar as fontes públicas.</Empty>}
               {grouped.map(([field, facts]) => (
@@ -170,12 +172,17 @@ export function BusinessPage() {
                   <div className="stack" style={{ gap: 8 }}>
                     {facts.map((f) => (
                       <div key={f.id}>
+                        {editing === f.id ? (
+                          <FactEditor fact={f} onCancel={() => setEditing(null)} onSaved={() => (setEditing(null), reload())} />
+                        ) : (
                         <div className="row" style={{ alignItems: 'flex-start' }}>
                           <div style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{renderValue(f)}</div>
                           <FactBadge status={f.status} />
+                          {EDITABLE(f.field) && <button className="btn sm" onClick={() => setEditing(f.id)}>Editar</button>}
                           {f.status === 'unconfirmed' && <button className="btn sm" onClick={async () => (await api.post(`/api/facts/${f.id}/confirm`), reload())}>Confirmar</button>}
                           <button className="icon-btn" title="Descartar" onClick={async () => (await api.del(`/api/facts/${f.id}`), reload())}>✕</button>
                         </div>
+                        )}
                         <div className="src">
                           {f.source}{f.sourceUrl && <> · <a href={f.sourceUrl} target="_blank" rel="noreferrer">ver fonte</a></>} · {fmtDate(f.retrievedAt)}
                           {f.note && <div style={{ color: 'var(--warn)' }}>{f.note}</div>}
@@ -423,6 +430,190 @@ function ActivityPanel({ detail, onChange }: { detail: Detail; onChange: () => v
             <div className="it" key={a.id}><div><div className="small">{a.message}</div><div className="small faint">{fmtDate(a.createdAt)}</div></div></div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- edição de qualquer informação ---------- */
+
+const EDITABLE = (field: string) => !['website_check', 'business_status', 'brand'].includes(field);
+const LIST_FIELDS = new Set(['cuisine', 'amenities', 'differentials', 'opening_hours_text', 'platforms']);
+
+function toText(f: Fact): string {
+  const v = f.value as any;
+  if (f.field === 'address') return v?.formatted ?? (typeof v === 'string' ? v : '');
+  if (f.field === 'socials') return Object.entries(v ?? {}).map(([k, u]) => `${k}: ${u}`).join('\n');
+  if (f.field === 'menu') return groupsToText(v);
+  if (f.field === 'services' || f.field === 'products') return itemsToText(v);
+  if (Array.isArray(v)) return v.join('\n');
+  return v == null ? '' : String(v);
+}
+
+function fromText(field: string, text: string): unknown {
+  const t = text.trim();
+  if (field === 'address') return { formatted: t };
+  if (field === 'socials') {
+    return Object.fromEntries(
+      t.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+        const i = l.indexOf(':');
+        const k = i > 0 && !l.slice(0, i).includes('/') ? l.slice(0, i).trim().toLowerCase() : 'link';
+        return [k, (i > 0 && k !== 'link' ? l.slice(i + 1) : l).trim()];
+      }),
+    );
+  }
+  if (field === 'menu') return parseGroups(text);
+  if (field === 'services' || field === 'products') return parseItems(text);
+  if (LIST_FIELDS.has(field)) return t.split('\n').map((x) => x.trim()).filter(Boolean);
+  return t;
+}
+
+const EDIT_HELP: Record<string, string> = {
+  socials: 'Uma rede por linha, ex.: instagram: https://instagram.com/perfil',
+  menu: 'Uma linha por item: Nome | descrição | preço. Use “# Categoria” para agrupar.',
+  services: 'Uma linha por item: Nome | descrição | preço | duração.',
+  products: 'Uma linha por item: Nome | descrição | preço.',
+  opening_hours: 'Ex.: Mo-Fr 08:00-18:00; Sa 09:00-14:00 — ou texto livre.',
+  menu_url: 'Link começando com https://',
+};
+
+function FactEditor({ fact, onCancel, onSaved }: { fact: Fact; onCancel: () => void; onSaved: () => void }) {
+  const { notify } = useApp();
+  const [text, setText] = useState(() => toText(fact));
+  const [busy, setBusy] = useState(false);
+  const multiline = LIST_FIELDS.has(fact.field) || ['socials', 'menu', 'services', 'products', 'description', 'address'].includes(fact.field) || text.length > 60;
+  async function save() {
+    setBusy(true);
+    try {
+      await api.post(`/api/businesses/${fact.businessId}/facts`, { field: fact.field, value: fromText(fact.field, text), note: fact.status === 'user_provided' ? undefined : `Corrigido pelo operador (antes: ${fact.source})` });
+      notify('Informação atualizada');
+      onSaved();
+    } catch (e: any) {
+      notify(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      {multiline ? (
+        <textarea className={`textarea ${['menu', 'services', 'products'].includes(fact.field) ? 'mono' : ''}`} rows={['menu', 'services', 'products'].includes(fact.field) ? 8 : 3} value={text} onChange={(e) => setText(e.target.value)} autoFocus />
+      ) : (
+        <input className="input" value={text} onChange={(e) => setText(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && save()} />
+      )}
+      {EDIT_HELP[fact.field] && <span className="small faint">{EDIT_HELP[fact.field]}</span>}
+      <div className="row">
+        <button className="btn primary sm" disabled={busy} onClick={save}>Salvar</button>
+        <button className="btn sm" onClick={onCancel}>Cancelar</button>
+        <span className="small faint">O dado original continua registrado com a fonte.</span>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- cardápio: link ou arquivo (sempre disponível) ---------- */
+
+const DOC_TITLE: Record<string, [string, string]> = {
+  menu: ['Cardápio', 'cardápio'],
+  services: ['Tabela de serviços e preços', 'tabela de preços'],
+  products: ['Catálogo de produtos', 'catálogo'],
+};
+
+function MenuPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
+  const { notify } = useApp();
+  const [title, noun] = DOC_TITLE[detail.segment.contentKind] ?? DOC_TITLE.menu!;
+  const [link, setLink] = useState('');
+  const [rights, setRights] = useState('authorized');
+  const [busy, setBusy] = useState(false);
+  const [over, setOver] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const links = detail.facts.filter((f) => f.field === 'menu_url');
+  const files = detail.assets.filter((a) => a.kind === 'menu');
+
+  async function addLink() {
+    const url = link.trim();
+    if (!url) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/businesses/${detail.business.id}/facts`, { field: 'menu_url', value: /^https?:\/\//i.test(url) ? url : `https://${url}` });
+      setLink('');
+      notify('Link do cardápio salvo');
+      onChange();
+    } catch (e: any) {
+      notify(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function upload(list: FileList | null) {
+    const file = list?.[0];
+    if (!file) return;
+    if (!/^(application\/pdf|image\/)/.test(file.type)) return notify('Envie um PDF ou uma imagem (JPG, PNG, WEBP).', true);
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('kind', 'menu');
+      fd.append('rights', rights);
+      fd.append('source', 'Enviado pelo operador');
+      fd.append('file', file);
+      await api.upload(`/api/businesses/${detail.business.id}/assets`, fd);
+      notify('Arquivo do cardápio enviado');
+      onChange();
+    } catch (e: any) {
+      notify(e.message, true);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = '';
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head"><h2>{title}</h2><span className="small muted">Link ou PDF — aparece no site como “Ver {noun}”</span></div>
+      <div className="card-pad stack" style={{ gap: 12 }}>
+        <div
+          onClick={() => input.current?.click()}
+          onDragOver={(e) => (e.preventDefault(), setOver(true))}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => (e.preventDefault(), setOver(false), upload(e.dataTransfer.files))}
+          style={{ border: `2px dashed ${over ? 'var(--brand)' : 'var(--line2)'}`, background: over ? 'var(--brand-soft)' : '#fafbfc', borderRadius: 10, padding: '22px 16px', textAlign: 'center', cursor: 'pointer' }}
+        >
+          {busy ? <Spinner /> : <><b>Arraste o PDF do {noun} aqui</b><div className="small muted">ou clique para escolher (PDF, JPG, PNG — até 15 MB)</div></>}
+        </div>
+        <input ref={input} type="file" accept="application/pdf,image/*" hidden onChange={(e) => upload(e.target.files)} />
+        <label className="row small" style={{ gap: 8 }}>
+          Direitos de uso:
+          <select className="select" style={{ width: 'auto', height: 30 }} value={rights} onChange={(e) => setRights(e.target.value)}>
+            {Object.entries(ASSET_RIGHTS_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </label>
+        <div className="row" style={{ flexWrap: 'nowrap' }}>
+          <input className="input" placeholder={`Ou cole o link do ${noun} (ex.: https://…)`} value={link} onChange={(e) => setLink(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLink()} />
+          <button className="btn" disabled={busy || !link.trim()} onClick={addLink}>Salvar link</button>
+        </div>
+
+        {(links.length > 0 || files.length > 0) && <div className="sep" style={{ margin: '4px 0' }} />}
+        {links.map((f) => (
+          <div key={f.id} className="row" style={{ flexWrap: 'nowrap' }}>
+            <span className="tag info">link</span>
+            <a href={String(f.value)} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(f.value)}</a>
+            <span className="small faint">{f.source}</span>
+            <button className="icon-btn" title="Remover" onClick={async () => (await api.del(`/api/facts/${f.id}`), onChange())}>✕</button>
+          </div>
+        ))}
+        {files.map((a) => (
+          <div key={a.id} className="row" style={{ flexWrap: 'nowrap' }}>
+            <span className="tag brand">{a.mime === 'application/pdf' ? 'PDF' : 'imagem'}</span>
+            <a href={`/api/assets/${a.id}/file`} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.filename}</a>
+            <select className="select" style={{ width: 'auto', height: 28, fontSize: 12 }} value={a.rights} onChange={async (e) => (await api.patch(`/api/assets/${a.id}`, { rights: e.target.value }), onChange())}>
+              {Object.entries(ASSET_RIGHTS_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+            <button className="icon-btn" title="Remover" onClick={async () => (await api.del(`/api/assets/${a.id}`), onChange())}>✕</button>
+          </div>
+        ))}
+        {files.some((a) => !USABLE_RIGHTS.includes(a.rights)) && <div className="small" style={{ color: 'var(--warn)' }}>Arquivos sem uso autorizado não aparecem no site.</div>}
+        <p className="small faint">Depois de anexar, gere a demonstração (ou use “Regenerar” no Estúdio) para o botão aparecer no site. Para mostrar os itens um a um no site, cadastre-os em “Complementar informações”.</p>
       </div>
     </div>
   );
