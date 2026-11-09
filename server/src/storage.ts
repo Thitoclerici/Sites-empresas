@@ -8,8 +8,18 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { UPLOAD_DIR } from './paths.ts';
 
-const URL_BASE = (process.env.SUPABASE_URL ?? '').replace(/\/$/, '');
-const KEY = process.env.SUPABASE_SERVICE_KEY ?? '';
+// Aceita a URL em qualquer formato (ex.: com /rest/v1 no final): usa só o domínio.
+function baseUrl(raw: string) {
+  const v = raw.trim();
+  if (!v) return '';
+  try {
+    return new URL(/^https?:\/\//.test(v) ? v : `https://${v}`).origin;
+  } catch {
+    return v.replace(/\/+$/, '');
+  }
+}
+const URL_BASE = baseUrl(process.env.SUPABASE_URL ?? '');
+const KEY = (process.env.SUPABASE_SERVICE_KEY ?? '').trim();
 const BUCKET = process.env.SUPABASE_BUCKET || 'prospecta';
 
 export const remoteEnabled = () => !!(URL_BASE && KEY);
