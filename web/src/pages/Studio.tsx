@@ -21,14 +21,14 @@ export function StudioList() {
       <div className="card">
         {data?.length ? (
           <table className="table">
-            <thead><tr><th>Demonstração</th><th>Estabelecimento</th><th>Status</th><th>Versão</th><th>Atualizado</th><th></th></tr></thead>
+            <thead><tr><th>Demonstração</th><th>Estabelecimento</th><th>Status</th><th>Link</th><th>Atualizado</th><th></th></tr></thead>
             <tbody>
               {data.map((s) => (
                 <tr key={s.id}>
                   <td><Link to={`/estudio/${s.id}`} style={{ fontWeight: 600 }}>{s.name}</Link></td>
                   <td><Link to={`/investigacao/${s.businessId}`} style={{ color: 'var(--text)' }}>{s.businessName}</Link><div className="small muted">{segmentLabel(s.segment)}</div></td>
                   <td><span className="tag">{STATUS_LABEL[s.status as SiteStatus]}</span></td>
-                  <td>v{s.version}</td>
+                  <td className="small">{s.shareEnabled ? <span className="tag ok">ativo · {s.shareViews} visualiz.</span> : <span className="faint">—</span>}</td>
                   <td className="small muted">{fmtDate(s.updatedAt)}</td>
                   <td><Link className="btn sm" to={`/estudio/${s.id}`}>Abrir editor</Link></td>
                 </tr>
@@ -63,6 +63,7 @@ export function StudioEditor() {
   const [showPending, setShowPending] = useState(true);
   const [statusModal, setStatusModal] = useState<SiteStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -210,6 +211,7 @@ export function StudioEditor() {
           <label className="row small"><input type="checkbox" checked={showPending} onChange={(e) => setShowPending(e.target.checked)} /> Modo edição (mostrar pendências)</label>
           <div className="row">
             <RegenerateButton siteId={site.id} dirty={dirty} onDone={load} aiEnabled={!!config?.integrations.ai} />
+            <button className="btn primary sm" onClick={() => (dirty ? save().then(() => setShareOpen(true)) : setShareOpen(true))}>➤ Enviar</button>
             <a className="btn sm" href={`/api/sites/${site.id}/preview`} target="_blank" rel="noreferrer" onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de abrir a prévia em nova aba.', true))}>Abrir prévia</a>
             <a className="btn sm" href={`/api/sites/${site.id}/export`} onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de exportar.', true))}>Exportar HTML</a>
           </div>
@@ -226,6 +228,7 @@ export function StudioEditor() {
         </div>
       </div>
 
+      {shareOpen && <ShareModal siteId={site.id} businessName={detail.business.name} unverified={unverifiedCount} status={site.status} onClose={() => setShareOpen(false)} />}
       {statusModal && (
         <StatusModal
           status={statusModal}
@@ -571,5 +574,76 @@ function TipsTab({ siteId, dirty, onGo }: { siteId: string; dirty: boolean; onGo
         </div>
       ))}
     </>
+  );
+}
+
+/* ---------- envio ---------- */
+
+interface ShareInfo { enabled: boolean; url: string | null; views: number; lastView: string | null }
+
+function ShareModal({ siteId, businessName, unverified, status, onClose }: { siteId: string; businessName: string; unverified: number; status: SiteStatus; onClose: () => void }) {
+  const { notify, config } = useApp();
+  const [info, setInfo] = useState<ShareInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const agency = config?.agencyName ?? 'Prospecta';
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    api.get<ShareInfo>(`/api/sites/${siteId}/share`).then(setInfo);
+  }, [siteId]);
+  useEffect(() => {
+    if (info?.url) setMessage(`Olá! Tudo bem? Sou da ${agency}. Preparei uma proposta de site para a ${businessName}, sem compromisso. Dá uma olhada: ${info.url}\n\nSe gostar, posso ajustar textos, fotos e cores e colocar no ar com o domínio de vocês.`);
+  }, [info?.url, agency, businessName]);
+  const toggle = async (enabled: boolean, regenerate = false) => {
+    setBusy(true);
+    try {
+      setInfo(await api.post<ShareInfo>(`/api/sites/${siteId}/share`, { enabled, regenerate }));
+    } catch (e: any) {
+      notify(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notify(`${label} copiado`);
+    } catch {
+      notify('Não foi possível copiar automaticamente. Selecione e copie manualmente.', true);
+    }
+  };
+  return (
+    <Modal title="Enviar demonstração" onClose={onClose}>
+      <div className="stack" style={{ gap: 14 }}>
+        {status === 'draft' && <div className="alert warn small">Esta demo ainda está como <b>rascunho</b>{unverified > 0 ? ` e tem ${unverified} textos de IA/modelo para revisar` : ''}. Revise antes de enviar ao proprietário.</div>}
+        {!info ? <Spinner /> : !info.enabled ? (
+          <>
+            <p className="muted">Crie um link público para o dono do estabelecimento abrir a demonstração no celular ou computador. O link é secreto (não aparece em buscadores) e pode ser desativado a qualquer momento.</p>
+            <button className="btn primary lg" disabled={busy} onClick={() => toggle(true)}>Criar link público</button>
+          </>
+        ) : (
+          <>
+            <label className="field"><span>Link da demonstração</span>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input className="input mono" readOnly value={info.url ?? ''} onFocus={(e) => e.target.select()} />
+                <button className="btn" onClick={() => copy(info.url!, 'Link')}>Copiar</button>
+                <a className="btn" href={info.url!} target="_blank" rel="noreferrer">Abrir</a>
+              </div>
+              <span className="help">{info.views} visualizaç{info.views === 1 ? 'ão' : 'ões'} pelo link{info.lastView ? ` · última em ${fmtDate(info.lastView)}` : ''} (suas visitas logado no Hub não contam)</span>
+            </label>
+            <label className="field"><span>Mensagem sugerida (edite à vontade)</span><textarea className="textarea" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></label>
+            <div className="row">
+              <button className="btn" onClick={() => copy(message, 'Mensagem')}>Copiar mensagem</button>
+              <button className="btn" onClick={async () => { await api.post(`/api/sites/${siteId}/sent`, { channel: 'link' }); notify('Envio registrado no histórico e no pipeline'); }}>Registrar que enviei</button>
+            </div>
+            <div className="sep" />
+            <div className="row between small">
+              <button className="btn ghost sm" disabled={busy} onClick={() => toggle(true, true)}>Gerar novo link (invalida o atual)</button>
+              <button className="btn ghost sm danger" disabled={busy} onClick={() => toggle(false)}>Desativar link</button>
+            </div>
+          </>
+        )}
+        <p className="small faint">O envio é sempre feito por você: a plataforma não manda mensagens automaticamente.</p>
+      </div>
+    </Modal>
   );
 }

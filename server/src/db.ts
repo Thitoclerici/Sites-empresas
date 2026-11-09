@@ -126,6 +126,12 @@ const MIGRATIONS: string[] = [
     result TEXT NOT NULL,
     created_at TEXT NOT NULL
   );`,
+  // 2: links públicos das demonstrações
+  `ALTER TABLE sites ADD COLUMN share_token TEXT;
+  ALTER TABLE sites ADD COLUMN share_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE sites ADD COLUMN share_views INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE sites ADD COLUMN share_last_view TEXT;
+  CREATE UNIQUE INDEX idx_sites_share_token ON sites(share_token);`,
 ];
 
 function migrate() {

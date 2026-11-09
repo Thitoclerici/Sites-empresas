@@ -5,6 +5,6 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   plugins: [react()],
-  server: { port: 5173, proxy: { '/api': 'http://127.0.0.1:3001' }, fs: { allow: ['..'] } },
+  server: { port: 5173, proxy: { '/api': { target: 'http://127.0.0.1:3001', xfwd: true }, '/d/': { target: 'http://127.0.0.1:3001', xfwd: true } }, fs: { allow: ['..'] } },
   build: { outDir: 'dist', emptyOutDir: true },
 });

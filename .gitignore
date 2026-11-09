@@ -3,3 +3,4 @@ data/*.db*
 data/uploads
 web/dist
 .env
+exports

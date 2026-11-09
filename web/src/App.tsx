@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { api } from './lib/api.ts';
 import { AppProvider, useApp } from './lib/context.tsx';
 import { Dashboard } from './pages/Dashboard.tsx';
 import { Explore } from './pages/Explore.tsx';
@@ -26,6 +28,7 @@ function Sidebar() {
         <div><span className={`dot ${i?.osm ? 'on' : ''}`} />OpenStreetMap</div>
         <div><span className={`dot ${i?.googlePlaces ? 'on' : ''}`} />Google Places {i && !i.googlePlaces && <span className="faint">(opcional)</span>}</div>
         <div><span className={`dot ${i?.ai ? 'on' : ''}`} />IA (Claude) {i && !i.ai && <span className="faint">(opcional)</span>}</div>
+        <button className="btn ghost sm" style={{ color: '#b4bac6', justifyContent: 'flex-start', padding: 0, marginTop: 6 }} onClick={async () => { await api.post('/api/logout'); location.reload(); }}>Sair</button>
       </div>
     </aside>
   );
@@ -54,7 +57,51 @@ function Shell() {
   );
 }
 
+function Login({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0f1115', padding: 20 }}>
+      <form
+        className="card card-pad stack"
+        style={{ width: 'min(380px,100%)', gap: 14 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError(null);
+          try {
+            await api.post('/api/login', { password });
+            onDone();
+          } catch (err: any) {
+            setError(err.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="logo" style={{ color: 'var(--text)', padding: 0 }}><span style={{ color: '#fff' }}>P</span>Prospecta</div>
+        <p className="muted">Entre com a senha do seu Hub.</p>
+        <label className="field"><span>Senha</span><input className="input" type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        {error && <div className="alert bad">{error}</div>}
+        <button className="btn primary lg" disabled={busy || !password}>{busy ? 'Entrando…' : 'Entrar'}</button>
+      </form>
+    </div>
+  );
+}
+
 export function App() {
+  const [auth, setAuth] = useState<'loading' | 'in' | 'out'>('loading');
+  const check = () =>
+    api
+      .get<{ required: boolean; authenticated: boolean }>('/api/auth/status')
+      .then((s) => setAuth(s.authenticated ? 'in' : 'out'))
+      .catch(() => setAuth('in'));
+  useEffect(() => {
+    check();
+  }, []);
+  if (auth === 'loading') return null;
+  if (auth === 'out') return <Login onDone={check} />;
   return (
     <AppProvider>
       <Shell />

@@ -19,6 +19,7 @@ import { aiEnabled, aiModel, regenerateSectionText, suggestImprovements } from '
 import { ruleSuggestions } from '../services/suggestions.ts';
 import { googleEnabled } from '../providers/googlePlaces.ts';
 import { HttpError } from '../providers/http.ts';
+import { randomBytes } from 'node:crypto';
 
 const STAGE_IDS = STAGES.map((s) => s.id) as [StageId, ...StageId[]];
 const MAX_UPLOAD = 15 * 1024 * 1024;
@@ -323,7 +324,7 @@ export async function apiRoutes(app: FastifyInstance) {
 
   app.get('/api/sites', async () => {
     const rows = db
-      .prepare('SELECT s.id, s.name, s.status, s.version, s.updated_at AS updatedAt, s.business_id AS businessId, b.name AS businessName, b.segment FROM sites s JOIN businesses b ON b.id = s.business_id ORDER BY s.updated_at DESC')
+      .prepare('SELECT s.id, s.name, s.status, s.version, s.updated_at AS updatedAt, s.share_enabled AS shareEnabled, s.share_views AS shareViews, s.business_id AS businessId, b.name AS businessName, b.segment FROM sites s JOIN businesses b ON b.id = s.business_id ORDER BY s.updated_at DESC')
       .all();
     return rows;
   });
@@ -444,6 +445,45 @@ export async function apiRoutes(app: FastifyInstance) {
     const slug = site.spec.businessName.normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'site';
     repo.addActivity(site.businessId, 'export', `Demonstração exportada (versão ${site.version})`);
     return reply.header('Content-Type', 'text/html; charset=utf-8').header('Content-Disposition', `attachment; filename="demo-${slug}.html"`).send(html);
+  });
+
+  /* ---------- link público da demonstração ---------- */
+  const publicUrl = (req: any, token: string) => {
+    const base = (process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] ?? req.protocol}://${req.headers['x-forwarded-host'] ?? req.headers.host}`).replace(/\/$/, '');
+    return `${base}/d/${token}`;
+  };
+  const shareInfo = (req: any, site: repo.SiteRecord) => ({
+    enabled: site.share.enabled,
+    url: site.share.token ? publicUrl(req, site.share.token) : null,
+    views: site.share.views,
+    lastView: site.share.lastView ?? null,
+  });
+
+  app.get<{ Params: { id: string } }>('/api/sites/:id/share', async (req, reply) => {
+    const site = repo.getSite(req.params.id);
+    if (!site) return fail(reply, 404, 'Site não encontrado');
+    return shareInfo(req, site);
+  });
+
+  app.post<{ Params: { id: string } }>('/api/sites/:id/share', async (req, reply) => {
+    const site = repo.getSite(req.params.id);
+    if (!site) return fail(reply, 404, 'Site não encontrado');
+    const { enabled, regenerate } = z.object({ enabled: z.boolean(), regenerate: z.boolean().optional() }).parse(req.body);
+    let token = site.share.token;
+    if (!token || regenerate) token = randomBytes(12).toString('base64url');
+    db.prepare('UPDATE sites SET share_token = ?, share_enabled = ? WHERE id = ?').run(token, enabled ? 1 : 0, site.id);
+    repo.addActivity(site.businessId, 'share', enabled ? `Link público da demonstração ${regenerate ? 'recriado' : 'ativado'}` : 'Link público da demonstração desativado');
+    return shareInfo(req, repo.getSite(site.id)!);
+  });
+
+  // Registro manual de envio (o envio em si é feito por você, fora da plataforma).
+  app.post<{ Params: { id: string } }>('/api/sites/:id/sent', async (req, reply) => {
+    const site = repo.getSite(req.params.id);
+    if (!site) return fail(reply, 404, 'Site não encontrado');
+    const { channel, note } = z.object({ channel: z.string().max(40), note: z.string().max(1000).optional() }).parse(req.body);
+    repo.addActivity(site.businessId, 'demo_sent', `Demonstração enviada ao estabelecimento via ${channel}${note ? ` — ${note}` : ''}`);
+    repo.advanceStage(site.businessId, 'contacted', STAGE_IDS, 'Contato comercial realizado (envio da demonstração)');
+    return { ok: true };
   });
 
   // Publicação: ponto de validação humana obrigatório. Infraestrutura de hospedagem é Fase 2.

@@ -66,6 +66,21 @@ Os dados ficam em `data/prospecta.db` e os uploads em `data/uploads/` (ambos for
 
 > Se a máquina sai para a internet por um proxy HTTP, defina `NODE_USE_ENV_PROXY=1` para que o `fetch` do Node use `HTTPS_PROXY`.
 
+## 3.1 Colocar o Hub online (Render)
+
+1. Crie uma conta em https://render.com (pode entrar com o GitHub).
+2. No painel: **New → Blueprint** e escolha o repositório `sites-empresas`. O Render lê o `render.yaml`.
+3. Preencha as variáveis pedidas:
+   - `HUB_PASSWORD`: a senha que você vai usar para entrar no Hub (obrigatória).
+   - `OSM_CONTACT_EMAIL`: seu e-mail de contato (recomendado pela política do OpenStreetMap).
+   - `ANTHROPIC_API_KEY` e `GOOGLE_PLACES_API_KEY`: opcionais, podem ficar em branco.
+4. Clique em **Apply**. Em alguns minutos o Hub fica disponível em `https://prospecta-XXXX.onrender.com`.
+5. Entre com a senha. Os links das demos usam esse mesmo endereço.
+
+Custo: o plano *Starter* do Render (cerca de US$ 7/mês) é necessário porque o banco e os uploads ficam num disco persistente. No plano gratuito os dados seriam apagados a cada reinício.
+
+Alternativa: qualquer serviço que rode Docker (Railway, Fly.io, um VPS) usando o `Dockerfile`, com um volume montado em `/var/data`.
+
 ## 4. Integrações
 
 | Integração | Obrigatória? | Variável | O que habilita |
@@ -78,6 +93,7 @@ As chaves ficam só no servidor (`.env`) e nunca são enviadas à interface.
 
 ## 5. LGPD e uso responsável
 
+- O Hub exige senha (`HUB_PASSWORD`) em produção; as demos são compartilhadas por **links secretos** que você ativa, desativa ou recria a qualquer momento, com contador de visualizações.
 - Coleta apenas dados **comerciais** de estabelecimentos, com fonte e data registradas.
 - **Exclusão completa** de um estabelecimento (dados, arquivos e demos) na página de Investigação.
 - Respeito a `robots.txt`, limites de taxa e termos das fontes. Nada de raspagem de redes sociais nem de contornar captchas.

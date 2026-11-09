@@ -216,6 +216,7 @@ export interface SiteRecord {
   version: number;
   createdAt: string;
   updatedAt: string;
+  share: { token?: string; enabled: boolean; views: number; lastView?: string };
 }
 
 export function rowToSite(r: Row): SiteRecord {
@@ -228,7 +229,13 @@ export function rowToSite(r: Row): SiteRecord {
     version: r.version,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    share: { token: r.share_token ?? undefined, enabled: !!r.share_enabled, views: r.share_views ?? 0, lastView: r.share_last_view ?? undefined },
   };
+}
+
+export function getSiteByShareToken(token: string) {
+  const r = db.prepare('SELECT * FROM sites WHERE share_token = ? AND share_enabled = 1').get(token) as Row | undefined;
+  return r ? rowToSite(r) : null;
 }
 
 export function getSite(id: string) {
