@@ -58,6 +58,16 @@ const sec = (type: string, props: Record<string, any>, origins: Record<string, O
   pending,
 });
 
+/** Escolhe a composição da abertura: considera o que valoriza os dados disponíveis e varia entre negócios. */
+function heroVariant(name: string, concept: Concept, hasPhotos: boolean, hasItems: boolean): number {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  if (concept === 'refined' && hasPhotos) return h % 3 === 0 ? 0 : 1; // capa valoriza fotos reais
+  if (concept === 'inviting' && hasItems) return h % 2; // centralizado precisa de produtos para a fileira de cartões
+  if (concept === 'inviting') return 0;
+  return h % 2;
+}
+
 function shortHoursLabel(rows: { days: string; hours: string }[]) {
   const r = rows.find((x) => !/fechado/i.test(x.hours));
   if (!r) return undefined;
@@ -161,6 +171,8 @@ export async function generateSpec(
             cta ? [] : ['Nenhum contato confirmado para o botão principal (telefone/WhatsApp).'],
           ),
         );
+        // Composição da abertura varia por negócio (evita sites iguais no mesmo segmento).
+        sections[sections.length - 1]!.variant = heroVariant(b.name, concept, photos.length > 0, (data.cardapio?.length ?? 0) + (data.servicos?.length ?? 0) + (data.produtos?.length ?? 0) > 0);
         break;
       }
       case 'marquee': {

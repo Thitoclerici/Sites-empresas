@@ -140,7 +140,7 @@ export const SECTION_DEFS: SectionDef[] = [
     type: 'hero',
     label: 'Abertura (Hero)',
     description: 'Primeira dobra: marca, chamada principal e botão de ação.',
-    variants: 4,
+    variants: 2,
     fields: [
       { key: 'eyebrow', label: 'Texto acima do título', type: 'text' },
       { key: 'headline', label: 'Título principal', type: 'text' },

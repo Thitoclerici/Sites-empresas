@@ -76,6 +76,9 @@ export interface Business {
   phone?: string;
   website?: string;
   websiteStatus: WebsiteStatus;
+  /** Qualidade do site existente (somente quando websiteStatus = has_site e o site foi verificado). */
+  websiteQuality?: 'ok' | 'weak' | 'unreachable' | null;
+  websiteNotes?: { issues: string[]; positives: string[]; checkedAt: string } | null;
   socials: SocialLinks;
   stage: StageId;
   priorityScore: number;

@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, fmtDate, type BusinessX, type Detail } from '../lib/api.ts';
 import { useApp, useLoad } from '../lib/context.tsx';
-import { Empty, FactBadge, Score, Spinner, WebsiteBadge } from '../components/ui.tsx';
+import { Empty, FactBadge, JourneyBar, PageHead, Progress, Score, Skeleton, SourceBadge, Spinner, WebsiteBadge } from '../components/ui.tsx';
+import { Icon } from '../components/Icon.tsx';
 import { ASSET_RIGHTS_LABEL, USABLE_RIGHTS, type Asset, type Fact } from '../../../shared/types.ts';
 import { groupsToText, itemsToText, parseGroups, parseItems } from '../lib/items.ts';
 import { extractPalette } from '../lib/palette.ts';
+import { parseOpeningHours } from '../../../shared/hours.ts';
 
 const FIELD_LABEL: Record<string, string> = {
   name: 'Nome', address: 'Endereço', phone: 'Telefone', whatsapp: 'WhatsApp', email: 'E-mail', website: 'Site', socials: 'Redes sociais',
-  platforms: 'Plataformas', opening_hours: 'Horário (OSM)', opening_hours_text: 'Horário (Google)', cuisine: 'Culinária', description: 'Descrição',
+  platforms: 'Plataformas', opening_hours: 'Horário', opening_hours_text: 'Horário (Google)', cuisine: 'Culinária', description: 'Descrição',
   menu_url: 'Link do cardápio', amenities: 'Comodidades', brand: 'Rede/marca', site_title: 'Título do site', brand_color: 'Cor da marca',
   business_status: 'Status (Google)', menu: 'Cardápio', services: 'Serviços', products: 'Produtos', differentials: 'Diferenciais', website_check: 'Verificação de site',
 };
@@ -19,31 +21,44 @@ const FIELD_LABEL: Record<string, string> = {
 export function Investigations() {
   const { segmentLabel, stageLabel } = useApp();
   const [q, setQ] = useState('');
-  const { data, loading } = useLoad<BusinessX[]>(`/api/businesses?saved=1&sort=recent${q ? `&q=${encodeURIComponent(q)}` : ''}`, [q]);
+  const [filter, setFilter] = useState<'all' | 'todo' | 'ready' | 'demo'>('all');
+  const { data, loading } = useLoad<(BusinessX & { sites?: number })[]>(`/api/businesses?saved=1&sort=recent${q ? `&q=${encodeURIComponent(q)}` : ''}`, [q]);
+  const list = (data ?? []).filter((b) => (filter === 'todo' ? !b.investigatedAt : filter === 'ready' ? b.investigatedAt && !b.sites : filter === 'demo' ? (b.sites ?? 0) > 0 : true));
   return (
     <div className="page">
-      <div className="page-head">
-        <div><h1>Investigação</h1><p>Estabelecimentos salvos, com as informações coletadas e suas fontes.</p></div>
-        <input className="input" style={{ width: 260 }} placeholder="Filtrar por nome…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <PageHead
+        crumb={<><span className="tag info">Etapa 2</span> Fluxo de trabalho</>}
+        title="Investigar"
+        subtitle="Suas oportunidades salvas: veja o que foi encontrado sobre cada negócio e crie o site quando estiver pronto."
+        actions={<div className="row" style={{ flexWrap: 'nowrap' }}><Icon name="search" className="faint" /><input className="input" style={{ width: 240 }} placeholder="Filtrar por nome…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}
+      />
+      <div className="toolbar">
+        <div className="seg">
+          {([['all', 'Todas'], ['todo', 'A investigar'], ['ready', 'Prontas para criar site'], ['demo', 'Com demonstração']] as const).map(([k, l]) => (
+            <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{l}</button>
+          ))}
+        </div>
       </div>
       <div className="card">
-        {data?.length ? (
+        {list.length ? (
           <table className="table">
-            <thead><tr><th>Prior.</th><th>Estabelecimento</th><th>Site</th><th>Etapa</th><th>Investigado em</th></tr></thead>
+            <thead><tr><th>Prioridade</th><th>Estabelecimento</th><th>Site</th><th>Etapa</th><th>Próximo passo</th></tr></thead>
             <tbody>
-              {data.map((b) => (
+              {list.map((b) => (
                 <tr key={b.id}>
                   <td><Score value={b.priorityScore} /></td>
-                  <td><Link to={`/investigacao/${b.id}`} style={{ fontWeight: 600, color: 'var(--text)' }}>{b.name}</Link><div className="small muted">{segmentLabel(b.segment)} · {b.address.suburb ?? b.address.city ?? ''}</div></td>
-                  <td><WebsiteBadge status={b.websiteStatus} /></td>
+                  <td><Link to={`/investigacao/${b.id}`} style={{ fontWeight: 700, color: 'var(--navy)' }}>{b.name}</Link><div className="small muted">{segmentLabel(b.segment)} · {b.address.suburb ?? b.address.city ?? ''}</div></td>
+                  <td><WebsiteBadge status={b.websiteStatus} quality={b.websiteQuality} /></td>
                   <td><span className="tag">{stageLabel(b.stage)}</span></td>
-                  <td className="small muted">{b.investigatedAt ? fmtDate(b.investigatedAt) : 'ainda não'}</td>
+                  <td>
+                    {!b.investigatedAt ? <Link className="btn sm" to={`/investigacao/${b.id}?investigar=1`}>Investigar</Link> : (b.sites ?? 0) > 0 ? <Link className="btn sm" to={`/investigacao/${b.id}`}>Ver demonstração</Link> : <Link className="btn sm primary" to={`/criar/${b.id}`}>Criar site</Link>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <Empty title={loading ? 'Carregando…' : 'Nenhum estabelecimento salvo'}>Pesquise em <Link to="/explorar">Explorar negócios</Link> e clique em “Investigar”.</Empty>
+          <Empty title={loading ? 'Carregando…' : 'Nenhuma oportunidade aqui'} icon="investigate">Encontre negócios em <Link to="/explorar">Encontrar negócios</Link> e clique em “Investigar”.</Empty>
         )}
       </div>
     </div>
@@ -54,15 +69,27 @@ export function Investigations() {
 
 function renderValue(f: Fact) {
   const v = f.value as any;
-  if (f.field === 'address') return v?.formatted ?? '—';
+  if (f.field === 'address') return v?.formatted ?? (typeof v === 'string' ? v : '—');
   if (f.field === 'website' || f.field === 'menu_url') return <a href={v} target="_blank" rel="noreferrer">{v}</a>;
   if (f.field === 'socials') return <div className="stack" style={{ gap: 2 }}>{Object.entries(v ?? {}).map(([k, u]) => <span key={k}>{k}: {String(u).startsWith('http') ? <a href={String(u)} target="_blank" rel="noreferrer">{String(u)}</a> : String(u)}</span>)}</div>;
+  if (f.field === 'opening_hours' && typeof v === 'string') {
+    const rows = parseOpeningHours(v);
+    return rows ? rows.map((r) => `${r.days}: ${r.hours}`).join(' · ') : v;
+  }
   if (f.field === 'brand_color') return <span className="row"><span className="swatch" style={{ background: v, width: 18, height: 18 }} />{v}</span>;
   if (f.field === 'menu') return `${(v as any[]).reduce((n, g) => n + g.items.length, 0)} itens em ${(v as any[]).length} categoria(s)`;
   if (f.field === 'services' || f.field === 'products') return `${(v as any[]).length} itens`;
   if (Array.isArray(v)) return v.join(f.field === 'opening_hours_text' ? ' · ' : ', ');
   if (typeof v === 'object' && v) return JSON.stringify(v);
   return String(v);
+}
+
+/** Em que ponto da jornada o negócio está. */
+export function journeyStep(d: Detail) {
+  if (!d.business.investigatedAt) return 1;
+  if (!d.sites.length) return d.missing.some((m) => m.importance === 'essential') ? 2 : 3;
+  if (d.sites.some((s) => s.status !== 'draft')) return 5;
+  return 4;
 }
 
 export function BusinessPage() {
@@ -74,6 +101,7 @@ export function BusinessPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [steps, setSteps] = useState<{ source: string; status: string; message: string; facts: number }[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [tab, setTab] = useState<'info' | 'materials' | 'history'>('info');
   const autoRan = useRef(false);
 
   async function runInvestigation() {
@@ -99,18 +127,6 @@ export function BusinessPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d]);
 
-  async function generate() {
-    setBusy('generate');
-    try {
-      const r = await api.post<{ site: { id: string }; aiError?: string }>(`/api/businesses/${id}/sites`, {});
-      if (r.aiError) notify(r.aiError, true);
-      nav(`/estudio/${r.site.id}`);
-    } catch (e: any) {
-      notify(e.message, true);
-      setBusy(null);
-    }
-  }
-
   async function patch(body: object) {
     try {
       setData(await api.patch<Detail>(`/api/businesses/${id}`, body));
@@ -125,47 +141,70 @@ export function BusinessPage() {
     return [...m.entries()];
   }, [d]);
 
-  if (error) return <div className="page"><div className="alert bad">{error}</div></div>;
-  if (!d) return <div className="page"><Spinner /></div>;
+  if (error) return <div className="page"><div className="alert bad"><Icon name="alert" />{error}</div></div>;
+  if (!d) return <div className="page stack"><Skeleton h={60} /><Skeleton h={140} /><Skeleton h={300} /></div>;
   const b = d.business;
+  const step = journeyStep(d);
+  const essentials = d.segment.checklist.filter((c) => c.importance === 'essential');
+  const recommended = d.segment.checklist.filter((c) => c.importance === 'recommended');
+  const missingSet = new Set(d.missing.map((m) => m.field));
+  const hasBasics = !!(b.name && (b.address.formatted || b.address.street));
+  const readyPct = Math.round(((d.segment.checklist.length - d.missing.length + (hasBasics ? 1 : 0)) / (d.segment.checklist.length + 1)) * 100);
+  const lastSite = d.sites[0];
 
   return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <div className="small muted"><Link to="/investigacao">Investigação</Link> / {segmentLabel(b.segment)}</div>
-          <div className="row" style={{ marginTop: 4 }}><h1>{b.name}</h1><Score value={b.priorityScore} /><WebsiteBadge status={b.websiteStatus} /></div>
-          <p>{b.address.formatted ?? 'Endereço não informado'} · <span className="faint">{b.sourceAttribution}</span></p>
+    <div className="page stack" style={{ gap: 16 }}>
+      <div className="crumb"><Link to="/investigacao">Investigar</Link> / {segmentLabel(b.segment)}</div>
+      <JourneyBar current={step} links={{ 0: '/explorar', 2: `/criar/${b.id}`, 3: `/criar/${b.id}?etapa=5`, ...(lastSite ? { 4: `/estudio/${lastSite.id}` } : {}) }} />
+
+      <div className="card hero-biz">
+        <div className="av">{b.name.replace(/\(.*?\)/g, '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}</div>
+        <div style={{ minWidth: 0 }}>
+          <div className="row" style={{ gap: 8 }}><h1 style={{ fontSize: 22 }}>{b.name}</h1><Score value={b.priorityScore} /><WebsiteBadge status={b.websiteStatus} quality={b.websiteQuality} /></div>
+          <div className="muted" style={{ marginTop: 4 }}>{segmentLabel(b.segment)} · {b.address.formatted ?? 'Endereço não informado'}</div>
+          <div className="small faint" style={{ marginTop: 2 }}>{b.sourceAttribution}{b.investigatedAt ? ` · investigado em ${fmtDate(b.investigatedAt)}` : ' · ainda não investigado'}</div>
         </div>
         <div className="row">
-          <select className="select" style={{ width: 190 }} value={b.stage} onChange={(e) => patch({ stage: e.target.value })}>
-            {config?.stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-          <button className="btn" onClick={runInvestigation} disabled={!!busy}>{busy === 'investigate' ? <><Spinner /> Investigando…</> : b.investigatedAt ? 'Investigar novamente' : 'Investigar'}</button>
-          <button className="btn primary" onClick={generate} disabled={!!busy}>{busy === 'generate' ? <><Spinner /> Gerando site…</> : '✦ Gerar demonstração de site'}</button>
+          <button className="btn" onClick={runInvestigation} disabled={!!busy}>{busy === 'investigate' ? <><Spinner /> Investigando…</> : <><Icon name="refresh" size={16} />{b.investigatedAt ? 'Investigar de novo' : 'Investigar agora'}</>}</button>
+          {lastSite ? (
+            <>
+              <Link className="btn" to={`/criar/${b.id}`}><Icon name="edit" size={16} />Revisar dados</Link>
+              <Link className="btn primary" to={`/estudio/${lastSite.id}`}><Icon name="studio" size={16} />Abrir demonstração</Link>
+            </>
+          ) : (
+            <button className="btn grad" disabled={!!busy || !b.investigatedAt} title={!b.investigatedAt ? 'Investigue primeiro' : ''} onClick={() => nav(`/criar/${b.id}`)}><Icon name="studio" size={16} />Criar site</button>
+          )}
         </div>
       </div>
 
-      {busy === 'investigate' && <div className="alert info" style={{ marginBottom: 14 }}>Consultando fontes autorizadas: OpenStreetMap{config?.integrations.googlePlaces ? ', Google Places' : ''} e o site oficial, quando houver…</div>}
-      {steps && (
-        <div className="card card-pad" style={{ marginBottom: 16 }}>
+      {busy === 'investigate' && (
+        <div className="card card-pad">
+          <Progress running steps={['Consultando o OpenStreetMap', config?.integrations.googlePlaces ? 'Confirmando no Google Places' : 'Verificando outras fontes configuradas', 'Lendo o site oficial, se existir', 'Organizando as informações e pendências']} />
+        </div>
+      )}
+      {steps && !busy && (
+        <div className="card card-pad">
           <h3 style={{ marginBottom: 8 }}>Resultado da investigação</h3>
           {steps.map((s) => (
-            <div key={s.source} className="row small" style={{ padding: '3px 0' }}>
-              <span className={`tag ${s.status === 'ok' ? 'ok' : s.status === 'skipped' ? '' : 'bad'}`}>{s.status === 'ok' ? 'ok' : s.status === 'skipped' ? 'ignorado' : 'erro'}</span>
-              <b>{s.source}</b><span className="muted">{s.message}</span>
+            <div key={s.source} className="row small" style={{ padding: '4px 0', flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+              <span className={`tag ${s.status === 'ok' ? 'ok' : s.status === 'skipped' ? '' : 'bad'}`}>{s.status === 'ok' ? 'ok' : s.status === 'skipped' ? 'não usado' : 'erro'}</span>
+              <b style={{ whiteSpace: 'nowrap' }}>{s.source}</b><span className="muted">{s.message}</span>
             </div>
           ))}
         </div>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)', alignItems: 'start' }}>
-        <div className="stack" style={{ gap: 16 }}>
-          <MenuPanel detail={d} onChange={reload} />
-          <div className="card">
-            <div className="card-head"><h2>Informações coletadas</h2><span className="small muted">Clique em “Editar” para corrigir qualquer dado — sua versão passa a valer</span></div>
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.55fr) minmax(0,1fr)', alignItems: 'start' }}>
+        <div className="card">
+          <div className="tabs">
+            <button className={tab === 'info' ? 'on' : ''} onClick={() => setTab('info')}><Icon name="investigate" size={15} />Informações encontradas <span className="cnt">{d.facts.length}</span></button>
+            <button className={tab === 'materials' ? 'on' : ''} onClick={() => setTab('materials')}><Icon name="image" size={15} />Fotos, logo e cardápio <span className="cnt">{d.assets.length}</span></button>
+            <button className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}><Icon name="clock" size={15} />Histórico</button>
+          </div>
+          {tab === 'info' && (
             <div className="card-pad">
-              {grouped.length === 0 && <Empty title="Nada coletado ainda">Clique em “Investigar” para consultar as fontes públicas.</Empty>}
+              <div className="row small muted" style={{ marginBottom: 6 }}><SourceBadge auto /> encontrado em fonte pública · <SourceBadge auto={false} /> informado por você · clique em “Editar” para corrigir</div>
+              {grouped.length === 0 && <Empty title="Nada coletado ainda" icon="investigate">Clique em “Investigar agora” para consultar as fontes públicas.</Empty>}
               {grouped.map(([field, facts]) => (
                 <div className="fact" key={field}>
                   <div className="k">{FIELD_LABEL[field] ?? field}</div>
@@ -175,16 +214,17 @@ export function BusinessPage() {
                         {editing === f.id ? (
                           <FactEditor fact={f} onCancel={() => setEditing(null)} onSaved={() => (setEditing(null), reload())} />
                         ) : (
-                        <div className="row" style={{ alignItems: 'flex-start' }}>
-                          <div style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{renderValue(f)}</div>
-                          <FactBadge status={f.status} />
-                          {EDITABLE(f.field) && <button className="btn sm" onClick={() => setEditing(f.id)}>Editar</button>}
-                          {f.status === 'unconfirmed' && <button className="btn sm" onClick={async () => (await api.post(`/api/facts/${f.id}/confirm`), reload())}>Confirmar</button>}
-                          <button className="icon-btn" title="Descartar" onClick={async () => (await api.del(`/api/facts/${f.id}`), reload())}>✕</button>
-                        </div>
+                          <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+                            <div style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{renderValue(f)}</div>
+                            {f.status === 'unconfirmed' && <FactBadge status={f.status} />}
+                            {f.status === 'unconfirmed' && <button className="btn sm" onClick={async () => (await api.post(`/api/facts/${f.id}/confirm`), reload())}>Confirmar</button>}
+                            {EDITABLE(f.field) && <button className="btn sm" onClick={() => setEditing(f.id)}>Editar</button>}
+                            <button className="icon-btn" title="Descartar" onClick={async () => (await api.del(`/api/facts/${f.id}`), reload())}><Icon name="x" size={15} /></button>
+                          </div>
                         )}
-                        <div className="src">
-                          {f.source}{f.sourceUrl && <> · <a href={f.sourceUrl} target="_blank" rel="noreferrer">ver fonte</a></>} · {fmtDate(f.retrievedAt)}
+                        <div className="src row" style={{ gap: 6 }}>
+                          <SourceBadge auto={f.source !== 'Operador'} source={f.source !== 'Operador' ? f.source : undefined} />
+                          {f.sourceUrl && <a href={f.sourceUrl} target="_blank" rel="noreferrer">ver na fonte</a>}<span>{fmtDate(f.retrievedAt)}</span>
                           {f.note && <div style={{ color: 'var(--warn)' }}>{f.note}</div>}
                         </div>
                       </div>
@@ -193,157 +233,73 @@ export function BusinessPage() {
                 </div>
               ))}
             </div>
-          </div>
-
-          <SupplementForm detail={d} onSaved={reload} />
+          )}
+          {tab === 'materials' && (
+            <div className="card-pad stack" style={{ gap: 16 }}>
+              <MenuPanel detail={d} onChange={reload} />
+              <AssetsPanel detail={d} onChange={reload} />
+            </div>
+          )}
+          {tab === 'history' && <div className="card-pad"><ActivityPanel detail={d} onChange={reload} /></div>}
         </div>
 
         <div className="stack" style={{ gap: 16 }}>
-          <div className="card">
-            <div className="card-head"><h2>Pendências</h2><span className="tag warn">{d.missing.length}</span></div>
-            <div className="card-pad">
-              {d.missing.length === 0 && <span className="muted">Tudo o que o segmento precisa foi informado.</span>}
-              {d.missing.map((m) => (
-                <div className="miss" key={m.field}>
-                  <span className={`tag ${m.importance === 'essential' ? 'bad' : ''}`}>{m.importance === 'essential' ? 'essencial' : 'recomendado'}</span>
-                  <div><b>{m.label}</b><div className="small muted">{m.hint}</div></div>
-                </div>
-              ))}
-              <div className="sep" />
-              <div className="small muted" style={{ marginBottom: 6 }}>Situação do site — confirme após verificar manualmente:</div>
-              <div className="row">
-                <button className="btn sm" onClick={() => patch({ websiteStatus: 'none_found' })}>Confirmei: não tem site</button>
-                <button className="btn sm" onClick={() => patch({ websiteStatus: 'has_site' })}>Tem site</button>
+          <div className="card card-pad stack" style={{ gap: 12 }}>
+            <div className="row between"><h2>Pronto para criar o site?</h2><span className="tag info">{readyPct}%</span></div>
+            <div className="bar"><div style={{ width: `${readyPct}%` }} /></div>
+            <div className="ready">
+              <div className={`ri ${hasBasics ? 'ok' : 'no ess'}`}><span className="b"><Icon name={hasBasics ? 'check' : 'alert'} size={12} /></span><span style={{ flex: 1 }}>Nome e endereço</span><span className="small faint">básico</span></div>
+              {[...essentials, ...recommended].map((c) => {
+                const ok = !missingSet.has(c.field);
+                return (
+                  <div key={c.field} className={`ri ${ok ? 'ok' : 'no'} ${c.importance === 'essential' ? 'ess' : ''}`} title={c.hint}>
+                    <span className="b"><Icon name={ok ? 'check' : c.importance === 'essential' ? 'alert' : 'plus'} size={12} /></span>
+                    <span style={{ flex: 1 }}>{c.label}</span>
+                    <span className="small faint">{c.importance === 'essential' ? 'essencial' : 'recomendado'}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="small muted">Nada aqui é obrigatório para gerar a primeira versão: o que faltar fica como pendência no editor e não aparece para o cliente.</p>
+            <Link className="btn primary" to={`/criar/${b.id}`}><Icon name="edit" size={16} />{d.missing.length ? 'Completar e criar o site' : 'Revisar e criar o site'}</Link>
+          </div>
+
+          <div className="card card-pad stack" style={{ gap: 10 }}>
+            <h2>Situação do site atual</h2>
+            <div className="row"><WebsiteBadge status={b.websiteStatus} quality={b.websiteQuality} />{b.website && <a className="small" href={b.website} target="_blank" rel="noreferrer">{b.website.replace(/^https?:\/\//, '')}</a>}</div>
+            {b.websiteNotes?.issues?.length ? (
+              <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{b.websiteNotes.issues.map((i) => <li key={i}>{i}</li>)}</ul>
+            ) : null}
+            {b.websiteStatus === 'unverified' && <p className="small muted">Nenhuma fonte registrou site, mas isso não prova que não exista. Faça uma busca rápida no Google pelo nome e confirme:</p>}
+            <div className="row">
+              <button className="btn sm" onClick={() => patch({ websiteStatus: 'none_found' })}><Icon name="check" size={14} />Confirmei: não tem site</button>
+              <button className="btn sm" onClick={() => patch({ websiteStatus: 'has_site' })}><Icon name="globe" size={14} />Tem site</button>
+            </div>
+          </div>
+
+          <div className="card card-pad stack" style={{ gap: 10 }}>
+            <h2>Demonstrações</h2>
+            {d.sites.map((s) => (
+              <div className="row between" key={s.id}>
+                <div><Link to={`/estudio/${s.id}`} style={{ fontWeight: 700 }}>{s.name}</Link><div className="small faint">versão {s.version} · {fmtDate(s.updatedAt)}</div></div>
+                <span className="tag">{({ draft: 'rascunho', reviewed: 'revisada', approved_by_client: 'aprovada', published: 'no ar' } as Record<string, string>)[s.status]}</span>
               </div>
-            </div>
+            ))}
+            {!d.sites.length && <span className="muted small">Nenhuma demonstração ainda.</span>}
           </div>
 
-          <AssetsPanel detail={d} onChange={reload} />
-
-          <div className="card">
-            <div className="card-head"><h2>Demonstrações</h2></div>
-            <div className="card-pad stack">
-              {d.sites.map((s) => (
-                <div className="row between" key={s.id}>
-                  <div><Link to={`/estudio/${s.id}`} style={{ fontWeight: 600 }}>{s.name}</Link><div className="small faint">v{s.version} · {fmtDate(s.updatedAt)}</div></div>
-                  <span className="tag">{s.status === 'draft' ? 'rascunho' : s.status === 'reviewed' ? 'revisada' : 'aprovada'}</span>
-                </div>
-              ))}
-              {!d.sites.length && <span className="muted small">Nenhuma demonstração criada.</span>}
-            </div>
+          <div className="card card-pad stack" style={{ gap: 10 }}>
+            <h2>Etapa de venda</h2>
+            <select className="select" value={b.stage} onChange={(e) => patch({ stage: e.target.value })}>
+              {config?.stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <button className="btn ghost sm danger" style={{ justifySelf: 'start' }} onClick={async () => {
+              if (!confirm('Excluir este estabelecimento e todos os dados, arquivos e demonstrações? (LGPD: exclusão definitiva)')) return;
+              await api.del(`/api/businesses/${b.id}`);
+              nav('/investigacao');
+            }}><Icon name="trash" size={14} />Excluir dados do estabelecimento</button>
           </div>
-
-          <ActivityPanel detail={d} onChange={reload} />
-          <button className="btn danger" onClick={async () => {
-            if (!confirm('Excluir este estabelecimento e todos os dados, arquivos e demonstrações? (LGPD: exclusão definitiva)')) return;
-            await api.del(`/api/businesses/${b.id}`);
-            nav('/investigacao');
-          }}>Excluir dados do estabelecimento</button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- complementação manual ---------- */
-
-function SupplementForm({ detail, onSaved }: { detail: Detail; onSaved: () => void }) {
-  const { notify } = useApp();
-  const best = (field: string) => detail.facts.find((f) => f.field === field && f.status === 'user_provided')?.value ?? detail.facts.find((f) => f.field === field)?.value;
-  const kind = detail.segment.contentKind;
-  const [tab, setTab] = useState<string>('contato');
-  const [v, setV] = useState(() => ({
-    phone: (best('phone') as string) ?? '',
-    whatsapp: (best('whatsapp') as string) ?? '',
-    email: (best('email') as string) ?? '',
-    instagram: ((best('socials') as any)?.instagram as string) ?? '',
-    facebook: ((best('socials') as any)?.facebook as string) ?? '',
-    opening_hours: (best('opening_hours') as string) ?? '',
-    description: detail.facts.find((f) => f.field === 'description' && f.status === 'user_provided')?.value as string ?? '',
-    differentials: ((best('differentials') as string[]) ?? []).join('\n'),
-    menu: groupsToText(best('menu') as any),
-    services: itemsToText(best('services') as any),
-    products: itemsToText(best('products') as any),
-  }));
-  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value });
-
-  async function save(field: string, value: unknown) {
-    try {
-      await api.post(`/api/businesses/${detail.business.id}/facts`, { field, value });
-      notify('Informação salva');
-      onSaved();
-    } catch (e: any) {
-      notify(e.message, true);
-    }
-  }
-
-  const tabs: [string, string][] = [['contato', 'Contato'], ['sobre', 'Sobre e horários'], ['conteudo', kind === 'menu' ? 'Cardápio' : kind === 'services' ? 'Serviços' : 'Produtos']];
-  if (detail.business.segment === 'pet_shop') tabs.push(['produtos', 'Produtos']);
-
-  return (
-    <div className="card">
-      <div className="card-head"><h2>Complementar informações</h2><span className="small muted">Dados marcados como “informado por você”</span></div>
-      <div className="tabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
-      <div className="card-pad stack">
-        {tab === 'contato' && (
-          <>
-            <div className="grid g2">
-              <label className="field"><span>Telefone comercial</span><input className="input" value={v.phone} onChange={set('phone')} /></label>
-              <label className="field"><span>WhatsApp comercial (confirmado)</span><input className="input" value={v.whatsapp} onChange={set('whatsapp')} placeholder="(11) 9xxxx-xxxx" /></label>
-              <label className="field"><span>E-mail comercial</span><input className="input" value={v.email} onChange={set('email')} /></label>
-              <span />
-              <label className="field"><span>Instagram</span><input className="input" value={v.instagram} onChange={set('instagram')} placeholder="https://instagram.com/…" /></label>
-              <label className="field"><span>Facebook</span><input className="input" value={v.facebook} onChange={set('facebook')} /></label>
-            </div>
-            <div className="row" style={{ justifyContent: 'flex-end' }}>
-              <button className="btn primary" onClick={async () => {
-                if (v.phone) await save('phone', v.phone);
-                if (v.whatsapp) await save('whatsapp', v.whatsapp);
-                if (v.email) await save('email', v.email);
-                const socials = Object.fromEntries(Object.entries({ instagram: v.instagram, facebook: v.facebook }).filter(([, x]) => x));
-                if (Object.keys(socials).length) await save('socials', { ...((best('socials') as object) ?? {}), ...socials });
-              }}>Salvar contato</button>
-            </div>
-          </>
-        )}
-        {tab === 'sobre' && (
-          <>
-            <label className="field"><span>Descrição do negócio (informada pelo proprietário)</span><textarea className="textarea" rows={4} value={v.description} onChange={set('description')} placeholder="História, proposta e o que o dono destaca." /></label>
-            <label className="field"><span>Diferenciais (um por linha)</span><textarea className="textarea" rows={3} value={v.differentials} onChange={set('differentials')} placeholder={'Grãos torrados na casa\nAmbiente pet friendly'} /></label>
-            <label className="field"><span>Horário de funcionamento</span><input className="input" value={v.opening_hours} onChange={set('opening_hours')} placeholder="Mo-Fr 08:00-18:00; Sa 09:00-14:00" /><span className="help">Formato OSM (Mo, Tu, We, Th, Fr, Sa, Su) é convertido automaticamente; texto livre também é aceito.</span></label>
-            <div className="row" style={{ justifyContent: 'flex-end' }}>
-              <button className="btn primary" onClick={async () => {
-                if (v.description.trim()) await save('description', v.description.trim());
-                const diffs = v.differentials.split('\n').map((x) => x.trim()).filter(Boolean);
-                if (diffs.length) await save('differentials', diffs);
-                if (v.opening_hours.trim()) await save('opening_hours', v.opening_hours.trim());
-              }}>Salvar</button>
-            </div>
-          </>
-        )}
-        {tab === 'conteudo' && kind === 'menu' && (
-          <>
-            <label className="field">
-              <span>Cardápio</span>
-              <textarea className="textarea mono" rows={10} value={v.menu} onChange={set('menu')} placeholder={'# Cafés\nEspresso | Café curto e encorpado | 7,00\nCappuccino | | 12,00\n\n# Doces\nPão de queijo | | 6,50'} />
-              <span className="help">Uma linha por item: <b>Nome | descrição | preço</b>. Use <b># Categoria</b> para agrupar. Cadastre apenas itens e preços divulgados pelo estabelecimento.</span>
-            </label>
-            <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" onClick={() => save('menu', parseGroups(v.menu))}>Salvar cardápio</button></div>
-          </>
-        )}
-        {((tab === 'conteudo' && kind !== 'menu') || tab === 'produtos') && (() => {
-          const key = tab === 'produtos' || kind === 'products' ? 'products' : 'services';
-          return (
-            <>
-              <label className="field">
-                <span>{key === 'services' ? 'Serviços' : 'Produtos'}</span>
-                <textarea className="textarea mono" rows={8} value={v[key]} onChange={set(key)} placeholder={key === 'services' ? 'Corte masculino | Tesoura e máquina | 50,00 | 40 min\nBarba | Toalha quente | 35,00 | 30 min' : 'Camiseta básica | Algodão | 79,90'} />
-                <span className="help">Uma linha por item: <b>Nome | descrição | preço | extra</b> (duração, tamanho…).</span>
-              </label>
-              <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" onClick={() => save(key, parseItems(v[key]))}>Salvar</button></div>
-            </>
-          );
-        })()}
       </div>
     </div>
   );
@@ -351,7 +307,7 @@ function SupplementForm({ detail, onSaved }: { detail: Detail; onSaved: () => vo
 
 /* ---------- arquivos ---------- */
 
-function AssetsPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
+export function AssetsPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
   const { notify } = useApp();
   const [kind, setKind] = useState('photo');
   const [rights, setRights] = useState('authorized');
@@ -415,7 +371,7 @@ function AssetsPanel({ detail, onChange }: { detail: Detail; onChange: () => voi
   );
 }
 
-function ActivityPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
+export function ActivityPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
   const [note, setNote] = useState('');
   return (
     <div className="card">
@@ -519,7 +475,7 @@ const DOC_TITLE: Record<string, [string, string]> = {
   products: ['Catálogo de produtos', 'catálogo'],
 };
 
-function MenuPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
+export function MenuPanel({ detail, onChange }: { detail: Detail; onChange: () => void }) {
   const { notify } = useApp();
   const [title, noun] = DOC_TITLE[detail.segment.contentKind] ?? DOC_TITLE.menu!;
   const [link, setLink] = useState('');

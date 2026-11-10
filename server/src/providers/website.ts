@@ -15,6 +15,50 @@ export interface WebsiteInfo {
   socials: Record<string, string>;
   jsonLd: Record<string, unknown>[];
   phone?: string;
+  quality: SiteQuality;
+}
+
+/** Avaliação objetiva de um site existente (oportunidade de reformulação). */
+export interface SiteQuality {
+  level: 'ok' | 'weak' | 'unreachable';
+  issues: string[];
+  positives: string[];
+}
+
+const BUILDERS: [RegExp, string][] = [
+  [/wix\.com|wixstatic|_wixCss/i, 'Wix'],
+  [/sites\.google\.com|googleusercontent\.com\/sites/i, 'Google Sites'],
+  [/blogspot\.|blogger\.com/i, 'Blogger'],
+  [/wordpress\.com\b/i, 'WordPress.com'],
+  [/godaddysites|websitebuilder\.godaddy|img1\.wsimg\.com/i, 'GoDaddy Builder'],
+  [/webnode\./i, 'Webnode'],
+  [/weebly\.com|editmysite\.com/i, 'Weebly'],
+  [/hostinger\.|zyrosite/i, 'Hostinger Builder'],
+];
+
+/** Sinais objetivos, sem notas arbitrárias: cada problema listado é verificável no HTML. */
+export function evaluateHtml(html: string, finalUrl: string, now = new Date()): SiteQuality {
+  const issues: string[] = [];
+  const positives: string[] = [];
+  const text = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!/^https:/i.test(finalUrl)) issues.push('Sem HTTPS (navegadores mostram “não seguro”)');
+  else positives.push('HTTPS ativo');
+  if (!/<meta[^>]+name=["']viewport["']/i.test(html)) issues.push('Não é adaptado para celular (sem meta viewport)');
+  else positives.push('Adaptado para celular');
+  if (!/<title[^>]*>\s*\S/i.test(html)) issues.push('Sem título de página');
+  if (!/<meta[^>]+name=["']description["']/i.test(html)) issues.push('Sem descrição para o Google (SEO)');
+  const years = [...html.matchAll(/(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–]\s*)?((?:19|20)\d{2})/gi)].map((m) => Number(m[1]));
+  if (years.length) {
+    const y = Math.max(...years);
+    if (y <= now.getFullYear() - 2) issues.push(`Rodapé com ano ${y} (indício de site desatualizado)`);
+  }
+  const builder = BUILDERS.find(([re]) => re.test(html));
+  if (builder) issues.push(`Feito em construtor genérico (${builder[1]})`);
+  if (text.length < 400) issues.push('Pouco conteúdo na página inicial');
+  if (/<(table)[^>]+(width|bgcolor)=/i.test(html) || /<font\b/i.test(html) || /<marquee\b/i.test(html)) issues.push('Código antigo (layout com tabelas/font)');
+  if (/\.swf\b|<embed[^>]+flash/i.test(html)) issues.push('Usa Flash');
+  const level = issues.length >= 2 ? 'weak' : 'ok';
+  return { level, issues, positives };
 }
 
 async function robotsAllows(url: URL): Promise<boolean> {
@@ -96,5 +140,6 @@ export async function inspectWebsite(rawUrl: string): Promise<WebsiteInfo> {
     socials,
     jsonLd,
     phone: typeof business?.telephone === 'string' ? business.telephone : undefined,
+    quality: evaluateHtml(html, res.url || rawUrl),
   };
 }

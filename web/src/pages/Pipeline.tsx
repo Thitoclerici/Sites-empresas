@@ -31,7 +31,8 @@ export function Pipeline() {
     <div className="page" style={{ maxWidth: 'none' }}>
       <div className="page-head">
         <div>
-          <h1>Pipeline comercial</h1>
+          <div className="crumb"><span className="tag info">Etapa 4</span> Fluxo de trabalho</div>
+          <h1>Vendas</h1>
           <p>{total} oportunidades no CRM. Arraste os cartões entre as etapas. Contatos comerciais são feitos e registrados por você; nada é enviado automaticamente.</p>
         </div>
         <select className="select" style={{ width: 200 }} value={seg} onChange={(e) => setSeg(e.target.value)}>

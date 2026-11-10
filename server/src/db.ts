@@ -133,6 +133,11 @@ const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX idx_sites_share_token ON sites(share_token);`,
   // 3: publicação do site aprovado (hospedagem e domínio)
   `ALTER TABLE sites ADD COLUMN publish_info TEXT;`,
+  // 4: qualidade do site existente e chave de deduplicação
+  `ALTER TABLE businesses ADD COLUMN website_quality TEXT;
+  ALTER TABLE businesses ADD COLUMN website_notes TEXT;
+  ALTER TABLE businesses ADD COLUMN dedupe_key TEXT;
+  CREATE INDEX idx_business_dedupe ON businesses(dedupe_key);`,
 ];
 
 function migrate() {

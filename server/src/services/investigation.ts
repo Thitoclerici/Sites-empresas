@@ -10,7 +10,7 @@ import { findGooglePlace, googleEnabled } from '../providers/googlePlaces.ts';
 import { inspectWebsite } from '../providers/website.ts';
 import { addActivity, addFact, advanceStage, bestFacts, getBusiness, listAssets, updateBusinessFields } from '../repo.ts';
 import { now } from '../db.ts';
-import { scoreBusiness } from './prospecting.ts';
+import { normalizePhone, scoreBusiness } from './prospecting.ts';
 import { USABLE_RIGHTS } from '../../../shared/types.ts';
 
 export interface InvestigationStep {
@@ -60,7 +60,7 @@ export async function investigate(businessId: string): Promise<{ steps: Investig
     const links = analyzeLinks(tags);
     f('name', tags.name ?? b.name);
     f('address', (getBusiness(businessId)!.address));
-    f('phone', tags.phone ?? tags['contact:phone'] ?? tags['contact:mobile']);
+    f('phone', normalizePhone(tags.phone ?? tags['contact:phone'] ?? tags['contact:mobile']));
     f('email', tags.email ?? tags['contact:email']);
     f('website', links.website);
     f('socials', Object.keys(links.socials).length ? links.socials : undefined, 'Perfis públicos: revise manualmente; o conteúdo dessas redes não é coletado automaticamente.');
@@ -103,7 +103,7 @@ export async function investigate(businessId: string): Promise<{ steps: Investig
         g('website', links?.website);
         if (links && !links.website) g('socials', links.socials);
         if (links?.platforms.length) g('platforms', links.platforms);
-        g('phone', p.nationalPhoneNumber ?? p.internationalPhoneNumber);
+        g('phone', normalizePhone(p.nationalPhoneNumber ?? p.internationalPhoneNumber));
         g('opening_hours_text', p.regularOpeningHours?.weekdayDescriptions);
         g('business_status', p.businessStatus);
         steps.push({
@@ -125,9 +125,11 @@ export async function investigate(businessId: string): Promise<{ steps: Investig
   // 3) Site oficial (se houver): metadados públicos, respeitando robots.txt.
   const facts = bestFacts(businessId);
   const website = (facts.website?.value as string | undefined) ?? googleWebsite;
+  let siteQuality: { level: 'ok' | 'weak' | 'unreachable'; issues: string[]; positives: string[] } | null = null;
   if (website) {
     try {
       const info = await inspectWebsite(website);
+      siteQuality = info.quality;
       const S = 'Site oficial';
       let n = 0;
       const s = (field: string, value: unknown) => {
@@ -140,9 +142,17 @@ export async function investigate(businessId: string): Promise<{ steps: Investig
       s('brand_color', info.themeColor && /^#[0-9a-f]{3,8}$/i.test(info.themeColor) ? info.themeColor : undefined);
       s('socials', Object.keys(info.socials).length ? info.socials : undefined);
       s('phone', info.phone);
-      steps.push({ source: S, status: 'ok', message: `Página inicial lida (${info.finalUrl}).`, facts: n });
+      steps.push({
+        source: S,
+        status: 'ok',
+        message: `Página inicial lida (${info.finalUrl}). ${info.quality.level === 'weak' ? `Site fraco/desatualizado: ${info.quality.issues.join('; ')}.` : info.quality.issues.length ? `Pontos de melhoria: ${info.quality.issues.join('; ')}.` : 'Site em bom estado.'}`,
+        facts: n,
+      });
     } catch (e: any) {
-      steps.push({ source: 'Site oficial', status: 'error', message: e.message, facts: 0 });
+      // Site que não responde (fora do ar, domínio expirado) é uma oportunidade — exceto quando o robots.txt proíbe a leitura.
+      const down = isSiteDown(e.message);
+      if (down) siteQuality = { level: 'unreachable', issues: [`O site não respondeu: ${e.message}`], positives: [] };
+      steps.push({ source: 'Site oficial', status: 'error', message: down ? `${e.message} — o site parece estar fora do ar.` : `${e.message} (verificação inconclusiva)`, facts: 0 });
     }
   } else {
     steps.push({ source: 'Site oficial', status: 'skipped', message: 'Nenhum site próprio identificado.', facts: 0 });
@@ -172,6 +182,7 @@ export async function investigate(businessId: string): Promise<{ steps: Investig
   const updated = getBusiness(businessId)!;
   const { score, reasons } = scoreBusiness({
     websiteStatus,
+    websiteQuality: websiteStatus === 'has_site' ? siteQuality?.level : null,
     phone,
     socials: (fin.socials?.value as Record<string, string>) ?? {},
     tags: updated.tags ?? {},
@@ -187,10 +198,13 @@ export async function investigate(businessId: string): Promise<{ steps: Investig
     priority_reasons: reasons,
     investigated_at: now(),
     saved: 1,
+    website_quality: websiteStatus === 'has_site' ? siteQuality?.level ?? null : null,
+    website_notes: websiteStatus === 'has_site' && siteQuality ? { issues: siteQuality.issues, positives: siteQuality.positives, checkedAt: now() } : null,
   });
 
   const missing = computeMissing(businessId);
   if (websiteStatus !== 'has_site') advanceStage(businessId, 'qualified', STAGE_ORDER, 'Qualificado: sem site próprio identificado');
+  else if (siteQuality && siteQuality.level !== 'ok') advanceStage(businessId, 'qualified', STAGE_ORDER, 'Qualificado: site existente fraco ou fora do ar');
   addActivity(
     businessId,
     'investigation',
@@ -218,4 +232,42 @@ export function computeMissing(businessId: string): MissingItem[] {
     return Array.isArray(f.value) ? f.value.length > 0 : !!f.value;
   };
   return seg.checklist.filter((c) => !has(c.field));
+}
+
+/**
+ * Verifica em lote os sites existentes (sem a investigação completa): classifica como
+ * bom, fraco/desatualizado ou fora do ar. Limitado para respeitar os sites consultados.
+ */
+export async function checkSites(ids: string[]) {
+  const results: { id: string; quality: string | null; issues: string[]; error?: string }[] = [];
+  const list = ids.slice(0, 30).map((id) => getBusiness(id)).filter((b): b is NonNullable<typeof b> => !!b && !!b.website);
+  let i = 0;
+  async function worker() {
+    while (i < list.length) {
+      const b = list[i++]!;
+      let q: { level: 'ok' | 'weak' | 'unreachable'; issues: string[]; positives: string[] };
+      try {
+        q = (await inspectWebsite(b.website!)).quality;
+      } catch (e: any) {
+        if (!isSiteDown(e.message)) {
+          results.push({ id: b.id, quality: null, issues: [], error: e.message }); // inconclusivo: não altera o status
+          continue;
+        }
+        q = { level: 'unreachable', issues: [`O site não respondeu: ${e.message}`], positives: [] };
+      }
+      const { score, reasons } = scoreBusiness({
+        websiteStatus: 'has_site', websiteQuality: q.level, phone: b.phone, socials: b.socials, tags: b.tags ?? {}, segment: b.segment, hasAddress: !!(b.address.street && b.address.number),
+      });
+      updateBusinessFields(b.id, { website_status: 'has_site', website_quality: q.level, website_notes: { issues: q.issues, positives: q.positives, checkedAt: now() }, priority_score: score, priority_reasons: reasons });
+      results.push({ id: b.id, quality: q.level, issues: q.issues });
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  return results;
+}
+
+/** Só considera "fora do ar" falhas inequívocas (domínio inexistente, conexão recusada, 404/410, erro 5xx). */
+export function isSiteDown(message: string) {
+  if (/robots/i.test(message)) return false;
+  return /ENOTFOUND|ECONNREFUSED|ERR_TLS_CERT|CERT_HAS_EXPIRED|HTTP (404|410|5\d\d)/i.test(message);
 }

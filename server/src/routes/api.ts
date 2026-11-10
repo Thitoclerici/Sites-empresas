@@ -10,8 +10,8 @@ import { STAGES, USABLE_RIGHTS, type StageId } from '../../../shared/types.ts';
 import { SECTION_DEFS, type SiteSpec } from '../../../shared/site.ts';
 import { renderSite } from '../../../shared/render.ts';
 import * as repo from '../repo.ts';
-import { getSearch, recentSearches, runSearch, scoreBusiness } from '../services/prospecting.ts';
-import { computeMissing, investigate } from '../services/investigation.ts';
+import { enrich, getSearch, recentSearches, runSearch, scoreBusiness } from '../services/prospecting.ts';
+import { checkSites, computeMissing, investigate } from '../services/investigation.ts';
 import { buildBrief, computeNav, generateSpec, switchConcept } from '../services/generator.ts';
 import { CONCEPTS, type Concept } from '../../../shared/design.ts';
 import { evaluateSite } from '../../../shared/quality.ts';
@@ -117,7 +117,7 @@ export async function apiRoutes(app: FastifyInstance) {
     if (q.q) (where.push('name LIKE ?'), args.push(`%${q.q}%`));
     const order = q.sort === 'recent' ? 'updated_at DESC' : 'priority_score DESC, updated_at DESC';
     const rows = db.prepare(`SELECT * FROM businesses ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order} LIMIT 500`).all(...args) as any[];
-    return rows.map(repo.rowToBusiness);
+    return enrich(rows.map(repo.rowToBusiness));
   });
 
   const ManualBusiness = z.object({
@@ -194,6 +194,13 @@ export async function apiRoutes(app: FastifyInstance) {
     for (const a of assets) await deleteUpload(a.storedName);
     const r = db.prepare('DELETE FROM businesses WHERE id = ?').run(req.params.id);
     return r.changes ? { ok: true } : fail(reply, 404, 'Estabelecimento não encontrado');
+  });
+
+  // Verificação em lote da qualidade dos sites existentes (resultados de busca).
+  app.post('/api/businesses/check-sites', async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string()).min(1).max(30) }).parse(req.body);
+    const results = await checkSites(ids);
+    return { results, businesses: enrich(ids.map((id) => repo.getBusiness(id)).filter(Boolean) as any[]) };
   });
 
   app.post<{ Params: { id: string } }>('/api/businesses/:id/investigate', async (req, reply) => {
@@ -332,11 +339,24 @@ export async function apiRoutes(app: FastifyInstance) {
     if (!b) return fail(reply, 404, 'Estabelecimento não encontrado');
     const { useAi, concept } = z.object({ useAi: z.boolean().optional(), concept: z.enum(['refined', 'bold', 'inviting']).optional() }).parse(req.body ?? {});
     const { spec, aiError, rationale } = await generateSpec(b.id, { useAi, concept });
+    if (concept) spec.meta.conceptChosen = true; // direção já escolhida no assistente
     const site = repo.createSite(b.id, `Demo — ${b.name}`, spec);
     repo.updateBusinessFields(b.id, { saved: 1 });
     repo.advanceStage(b.id, 'demo_created', STAGE_IDS, 'Demonstração de site criada');
     repo.addActivity(b.id, 'site_generated', `Demonstração gerada (${spec.meta.generator === 'ai' ? `IA: ${spec.meta.model}` : 'modelo determinístico'})${aiError ? ` — ${aiError}` : ''}`);
     return { site, aiError, rationale };
+  });
+
+  // Prévias dos três conceitos com os dados atuais (nada é salvo) — usadas no assistente de criação.
+  app.post<{ Params: { id: string } }>('/api/businesses/:id/preview-specs', async (req, reply) => {
+    const b = repo.getBusiness(req.params.id);
+    if (!b) return fail(reply, 404, 'Estabelecimento não encontrado');
+    const out = [];
+    for (const c of CONCEPTS) {
+      const { spec } = await generateSpec(b.id, { concept: c.id, useAi: false });
+      out.push({ ...c, spec, quality: evaluateSite(spec, { usableImageIds: usableImageIds(b.id) }).score });
+    }
+    return { recommended: out[0]?.spec.meta.direction?.recommended ?? null, concepts: out };
   });
 
   app.get('/api/sites', async () => {

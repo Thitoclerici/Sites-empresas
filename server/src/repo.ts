@@ -20,6 +20,8 @@ export function rowToBusiness(r: Row): Business & { saved: boolean } {
     phone: r.phone ?? undefined,
     website: r.website ?? undefined,
     websiteStatus: r.website_status,
+    websiteQuality: r.website_quality ?? null,
+    websiteNotes: json(r.website_notes, null),
     socials: json(r.socials, {}),
     stage: r.stage,
     saved: !!r.saved,
@@ -46,20 +48,59 @@ export function getBusinessByRef(ref: string) {
 }
 
 /** Insere ou atualiza dados vindos da fonte, preservando estágio e decisões do operador. */
+/** Nome normalizado para detectar duplicatas (sem acentos, pontuação e termos genéricos). */
+export function dedupeKey(name: string) {
+  return name
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\b(ltda|me|eireli|epp|s a|sa|cafeteria|cafe|restaurante|bar|lanchonete|padaria|pizzaria|barbearia|salao|loja|the|o|a|de|do|da|e)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || name.toLowerCase().trim();
+}
+
+export function distanceM(aLat: number, aLon: number, bLat: number, bLon: number) {
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLon = ((bLon - aLon) * Math.PI) / 180;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+/** Procura um estabelecimento já salvo que seja o mesmo (mesmo nome normalizado a menos de 120 m). */
+export function findDuplicate(name: string, lat?: number, lon?: number, excludeRef?: string) {
+  if (lat == null || lon == null) return null;
+  const rows = db.prepare('SELECT * FROM businesses WHERE dedupe_key = ? AND source_ref != ?').all(dedupeKey(name), excludeRef ?? '') as Row[];
+  const hit = rows.find((r) => r.lat != null && distanceM(lat, lon, r.lat, r.lon) < 120);
+  return hit ? rowToBusiness(hit) : null;
+}
+
 export function upsertBusiness(b: Omit<Business, 'id' | 'createdAt' | 'updatedAt' | 'stage'>): Business & { saved: boolean } {
-  const existing = getBusinessByRef(b.sourceRef);
+  const existing = getBusinessByRef(b.sourceRef) ?? findDuplicate(b.name, b.lat, b.lon, b.sourceRef);
   const ts = now();
   if (existing) {
-    // Não rebaixa um status confirmado manualmente pelo operador.
-    const keepStatus = existing.websiteStatus === 'none_found' && b.websiteStatus === 'unverified';
+    // Não rebaixa o que já foi apurado (investigação ou confirmação do operador) com dados mais pobres da busca.
+    const keepStatus = b.websiteStatus === 'unverified' && existing.websiteStatus !== 'unverified';
+    // Não apaga dados já obtidos (ex.: telefone vindo da investigação) quando a busca não os traz.
+    const merged = {
+      phone: b.phone ?? existing.phone ?? null,
+      website: b.website ?? existing.website ?? null,
+      address: b.address.formatted ? b.address : existing.address,
+      socials: { ...existing.socials, ...b.socials },
+    };
     db.prepare(
       `UPDATE businesses SET name=?, segment=?, category=?, lat=?, lon=?, address=?, phone=?, website=?, website_status=?, socials=?,
        priority_score=?, priority_reasons=?, source_attribution=?, tags=?, fetched_at=?, updated_at=? WHERE id=?`,
     ).run(
-      b.name, b.segment, b.category, b.lat ?? null, b.lon ?? null, JSON.stringify(b.address), b.phone ?? null, b.website ?? null,
-      keepStatus ? existing.websiteStatus : b.websiteStatus, JSON.stringify(b.socials), b.priorityScore, JSON.stringify(b.priorityReasons),
-      b.sourceAttribution, JSON.stringify(b.tags ?? {}), b.fetchedAt, ts, existing.id,
+      existing.source === 'manual' ? existing.name : b.name, existing.segment === b.segment ? b.segment : existing.investigatedAt ? existing.segment : b.segment, b.category,
+      b.lat ?? existing.lat ?? null, b.lon ?? existing.lon ?? null, JSON.stringify(merged.address), merged.phone, merged.website,
+      keepStatus ? existing.websiteStatus : b.websiteStatus, JSON.stringify(merged.socials),
+      keepStatus ? existing.priorityScore : b.priorityScore, JSON.stringify(keepStatus ? existing.priorityReasons : b.priorityReasons),
+      b.sourceAttribution, JSON.stringify({ ...(existing.tags ?? {}), ...(b.tags ?? {}) }), b.fetchedAt, ts, existing.id,
     );
+    db.prepare('UPDATE businesses SET dedupe_key = ? WHERE id = ?').run(dedupeKey(b.name), existing.id);
     return getBusiness(existing.id)!;
   }
   const id = uid();
@@ -72,6 +113,7 @@ export function upsertBusiness(b: Omit<Business, 'id' | 'createdAt' | 'updatedAt
     b.website ?? null, b.websiteStatus, JSON.stringify(b.socials), b.priorityScore, JSON.stringify(b.priorityReasons), b.sourceAttribution,
     JSON.stringify(b.tags ?? {}), b.fetchedAt, ts, ts,
   );
+  db.prepare('UPDATE businesses SET dedupe_key = ? WHERE id = ?').run(dedupeKey(b.name), id);
   return getBusiness(id)!;
 }
 

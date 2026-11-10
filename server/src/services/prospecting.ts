@@ -5,7 +5,41 @@ import { classifyOsm, getSegment, OSM_HIGHLIGHTS } from '../../../shared/segment
 import type { Business, PriorityReason, WebsiteStatus } from '../../../shared/types.ts';
 import { areaWithRadius, geocodeArea, OSM_ATTRIBUTION, searchPlaces, type RawPlace } from '../providers/osm.ts';
 import { analyzeLinks } from '../providers/links.ts';
-import { rowToBusiness, upsertBusiness } from '../repo.ts';
+import { dedupeKey, distanceM, rowToBusiness, upsertBusiness } from '../repo.ts';
+
+/** Padroniza telefones brasileiros: (11) 3000-0000 / (11) 90000-0000. Mantém o original se não reconhecer. */
+export function normalizePhone(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const first = raw.split(/[;,/]| ou /)[0]!.trim();
+  let d = first.replace(/\D/g, '');
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) d = d.slice(2);
+  if (d.startsWith('0') && (d.length === 11 || d.length === 12)) d = d.slice(1);
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  if (/^0?800\d{7}$/.test(d)) return d.replace(/^0?800(\d{3})(\d{4})$/, '0800 $1 $2');
+  return first;
+}
+
+/** Une resultados duplicados da mesma busca (ex.: ponto e prédio do mesmo negócio no OSM). */
+export function dedupePlaces(places: RawPlace[]): { places: RawPlace[]; merged: number } {
+  const out: RawPlace[] = [];
+  let merged = 0;
+  for (const p of places) {
+    const k = dedupeKey(p.name);
+    const dup = out.find((o) => dedupeKey(o.name) === k && o.lat != null && p.lat != null && distanceM(o.lat, o.lon!, p.lat, p.lon!) < 120);
+    if (!dup) {
+      out.push(p);
+      continue;
+    }
+    merged++;
+    // fica com o registro mais completo e soma as informações do outro
+    const richer = Object.keys(p.tags).length > Object.keys(dup.tags).length ? p : dup;
+    const other = richer === p ? dup : p;
+    const idx = out.indexOf(dup);
+    out[idx] = { ...richer, tags: { ...other.tags, ...richer.tags }, address: richer.address.formatted ? richer.address : other.address };
+  }
+  return { places: out, merged };
+}
 
 export interface SearchParams {
   city: string;
@@ -23,6 +57,7 @@ export interface SearchParams {
  */
 export function scoreBusiness(input: {
   websiteStatus: WebsiteStatus;
+  websiteQuality?: string | null;
   phone?: string;
   socials: Record<string, unknown>;
   tags: Record<string, string>;
@@ -32,7 +67,11 @@ export function scoreBusiness(input: {
   const reasons: PriorityReason[] = [];
   const add = (label: string, points: number) => reasons.push({ label, points });
   switch (input.websiteStatus) {
-    case 'has_site': add('Já possui site próprio identificado', -40); break;
+    case 'has_site':
+      if (input.websiteQuality === 'weak') add('Possui site, mas fraco/desatualizado (oportunidade de reformulação)', 18);
+      else if (input.websiteQuality === 'unreachable') add('Site informado não está respondendo (pode estar fora do ar)', 22);
+      else add('Já possui site próprio identificado', -40);
+      break;
     case 'none_found': add('Nenhum site encontrado nas fontes consultadas', 35); break;
     case 'social_only': add('Presença online apenas em redes sociais/plataformas', 30); break;
     case 'unverified': add('Nenhum site registrado no OpenStreetMap (não confirmado)', 20); break;
@@ -60,7 +99,7 @@ function categoryLabel(tags: Record<string, string>): string {
 export function placeToBusiness(p: RawPlace, fetchedAt: string): Omit<Business, 'id' | 'createdAt' | 'updatedAt' | 'stage'> {
   const segment = classifyOsm(p.tags);
   const links = analyzeLinks(p.tags);
-  const phone = p.tags.phone ?? p.tags['contact:phone'] ?? p.tags['contact:mobile'];
+  const phone = normalizePhone(p.tags.phone ?? p.tags['contact:phone'] ?? p.tags['contact:mobile']);
   const { score, reasons } = scoreBusiness({
     websiteStatus: links.status,
     phone,
@@ -102,7 +141,11 @@ export async function runSearch(params: SearchParams) {
 
   const result = await searchPlaces({ area, segments: params.segments, name: params.name });
   const fetchedAt = now();
-  let businesses = result.places.map((p) => upsertBusiness(placeToBusiness(p, fetchedAt)));
+  const { places, merged } = dedupePlaces(result.places);
+  const seen = new Set<string>();
+  let businesses = places
+    .map((p) => upsertBusiness(placeToBusiness(p, fetchedAt)))
+    .filter((b) => (seen.has(b.id) ? false : (seen.add(b.id), true))); // duplicatas já salvas viram um só
   if (params.segments.length) {
     // Busca de "salão" também retorna barbearias (mesma tag OSM); mantém só o pedido.
     const wanted = new Set(params.segments);
@@ -129,7 +172,8 @@ export async function runSearch(params: SearchParams) {
     warnings: result.warnings,
     fetchedAt,
     attribution: OSM_ATTRIBUTION,
-    businesses,
+    duplicatesMerged: merged,
+    businesses: enrich(businesses),
   };
 }
 
@@ -146,5 +190,14 @@ export function getSearch(id: string) {
     const rows = db.prepare(`SELECT * FROM businesses WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as any[];
     for (const r of rows) map.set(r.id, rowToBusiness(r));
   }
-  return { id: row.id, params: JSON.parse(row.params), areaLabel: row.area_label, createdAt: row.created_at, businesses: ids.map((i) => map.get(i)).filter(Boolean) };
+  return { id: row.id, params: JSON.parse(row.params), areaLabel: row.area_label, createdAt: row.created_at, businesses: enrich(ids.map((i) => map.get(i)).filter(Boolean)) };
+}
+
+/** Acrescenta aos resultados: demos existentes e status da oportunidade. */
+export function enrich<T extends { id: string }>(list: T[]) {
+  if (!list.length) return list.map((b) => ({ ...b, sites: 0 }));
+  const ids = list.map((b) => b.id);
+  const rows = db.prepare(`SELECT business_id, COUNT(*) AS c, MAX(CASE WHEN status='published' THEN 1 ELSE 0 END) AS pub FROM sites WHERE business_id IN (${ids.map(() => '?').join(',')}) GROUP BY business_id`).all(...ids) as any[];
+  const m = new Map(rows.map((r) => [r.business_id, r]));
+  return list.map((b) => ({ ...b, sites: m.get(b.id)?.c ?? 0, published: !!m.get(b.id)?.pub }));
 }

@@ -180,35 +180,37 @@ function artwork(ctx: Ctx, shape: 'arch' | 'rect' | 'circle', caption: string, v
   const t = ctx.theme;
   const rnd = seeded(ctx.spec.businessName + variant);
   const id = `g${Math.floor(rnd() * 1e6)}`;
+  // Formato: vertical (painéis laterais) ou horizontal (capas e faixas largas) — a composição se adapta.
+  const wide = variant === 'cover' || variant === 'center';
+  const W = wide ? 1600 : 600;
+  const H = wide ? 720 : 800;
   const base = t.dark ? mix(t.secondary, t.primary, 0.25) : t.primary;
   const onBase = readableOn(base);
   const c1 = t.accent;
   const c2 = t.dark ? t.primary : mix(t.primary, '#000000', 0.35);
   const c3 = mix(t.background, '#FFFFFF', 0.3);
-  const cx = 160 + rnd() * 280;
-  const cy = 180 + rnd() * 220;
-  const r1 = 150 + rnd() * 80;
-  const ax = 40 + rnd() * 120;
+  const cx = wide ? W * (0.52 + rnd() * 0.2) : 160 + rnd() * 280;
+  const cy = wide ? H * (0.38 + rnd() * 0.1) : 180 + rnd() * 220;
+  const r1 = wide ? 230 + rnd() * 60 : 150 + rnd() * 80;
+  const ax = wide ? W * (0.6 + rnd() * 0.15) : 40 + rnd() * 120;
+  const archW = wide ? 360 : 300;
   const rot = Math.floor(rnd() * 4) * 90;
-  const iconName = ctx.segIcon;
+  const hx = wide ? W * 0.86 : 480;
+  const hy = wide ? H * 0.78 : 640;
   const shapes = [
     `<circle cx="${cx.toFixed(0)}" cy="${cy.toFixed(0)}" r="${r1.toFixed(0)}" fill="${c1}" opacity=".92"/>`,
-    `<path d="M${ax.toFixed(0)} 800 V${(520 - rnd() * 90).toFixed(0)} a150 150 0 0 1 300 0 V800z" fill="${c2}" opacity=".95"/>`,
-    `<g transform="rotate(${rot} 480 640)"><path d="M380 640 a100 100 0 0 1 200 0z" fill="${c3}" opacity=".9"/></g>`,
-    `<g fill="${onBase}" opacity=".5">${Array.from({ length: 24 }, (_, i) => `<circle cx="${430 + (i % 6) * 22}" cy="${70 + Math.floor(i / 6) * 22}" r="2.4"/>`).join('')}</g>`,
+    `<path d="M${ax.toFixed(0)} ${H} V${(H - (wide ? 330 : 280) - rnd() * 90).toFixed(0)} a${archW / 2} ${archW / 2} 0 0 1 ${archW} 0 V${H}z" fill="${c2}" opacity=".95"/>`,
+    `<g transform="rotate(${rot} ${hx} ${hy})"><path d="M${hx - 100} ${hy} a100 100 0 0 1 200 0z" fill="${c3}" opacity=".9"/></g>`,
+    `<g fill="${onBase}" opacity=".5">${Array.from({ length: 24 }, (_, i) => `<circle cx="${(wide ? W * 0.08 : 430) + (i % 6) * 22}" cy="${(wide ? 90 : 70) + Math.floor(i / 6) * 22}" r="2.4"/>`).join('')}</g>`,
   ].join('');
-  const illo = `<g transform="translate(${(300 - 12 * 13).toFixed(0)} ${(cy - 12 * 13).toFixed(0)}) scale(13)" fill="none" stroke="${readableOn(c1)}" stroke-width=".11" stroke-linecap="round" stroke-linejoin="round">${ICON[iconName] ?? ICON.star}</g>`;
-  const clip =
-    shape === 'arch'
-      ? `<path d="M0 800V300A300 300 0 0 1 600 300V800z"/>`
-      : shape === 'circle'
-        ? `<rect width="600" height="800" rx="300"/>`
-        : `<rect width="600" height="800"/>`;
-  return `<svg class="artsvg" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Arte gráfica de ${esc(displayName(ctx.spec.businessName))}">
+  const sc = wide ? 15 : 13;
+  const illo = `<g transform="translate(${(cx - 12 * sc).toFixed(0)} ${(cy - 12 * sc).toFixed(0)}) scale(${sc})" fill="none" stroke="${readableOn(c1)}" stroke-width=".11" stroke-linecap="round" stroke-linejoin="round">${ICON[ctx.segIcon] ?? ICON.star}</g>`;
+  const clip = shape === 'arch' && !wide ? `<path d="M0 ${H}V300A300 300 0 0 1 600 300V${H}z"/>` : shape === 'circle' && !wide ? `<rect width="${W}" height="${H}" rx="300"/>` : `<rect width="${W}" height="${H}"/>`;
+  return `<svg class="artsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Arte gráfica de ${esc(displayName(ctx.spec.businessName))}">
 <defs><clipPath id="${id}c">${clip}</clipPath>
 <filter id="${id}n"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .55 0"/></filter></defs>
-<g clip-path="url(#${id}c)"><rect width="600" height="800" fill="${base}"/>${shapes}${illo}<rect width="600" height="800" filter="url(#${id}n)" opacity=".35"/>
-<text x="32" y="770" fill="${onBase}" font-size="15" letter-spacing="4" font-family="var(--bf)" font-weight="600" opacity=".85">${esc(caption.toUpperCase())}</text></g></svg>`;
+<g clip-path="url(#${id}c)"><rect width="${W}" height="${H}" fill="${base}"/>${shapes}${illo}<rect width="${W}" height="${H}" filter="url(#${id}n)" opacity=".35"/>
+${wide ? '' : `<text x="32" y="${H - 30}" fill="${onBase}" font-size="15" letter-spacing="4" font-family="var(--bf)" font-weight="600" opacity=".85">${esc(caption.toUpperCase())}</text>`}</g></svg>`;
 }
 
 /** Selo circular com texto girando (dados reais: segmento e local). */
@@ -434,6 +436,14 @@ function refinedCss(t: Theme): string {
 .hr-art .frame.arch{border-radius:999px 999px 0 0}
 .hr-art .badge{left:-60px;bottom:64px;color:var(--tx);background:var(--bg);border-radius:50%}
 @media(max-width:900px){.hr-grid{grid-template-columns:1fr}.hr-text{padding:48px 24px 32px}.hr-art{min-height:auto;aspect-ratio:4/4.6;margin:0 24px 24px}.hr-art .frame,.hr-art .artwrap{inset:0}.hr-art .badge{left:auto;right:-8px;bottom:-30px;width:120px;height:120px}}
+/* capa (variação) */
+.hrc{position:relative;padding-bottom:clamp(40px,6vw,80px)}
+.hrc-media{height:min(68vh,640px);position:relative;overflow:hidden}
+.hrc-media .frame,.hrc-media .artwrap{position:absolute;inset:0}
+.hrc-card{position:relative;margin-top:calc(-1 * clamp(120px,16vw,200px));background:var(--bg);max-width:760px;padding:clamp(28px,4vw,52px);box-shadow:0 30px 70px -40px rgba(0,0,0,.45)}
+.hrc-card .hr-name{font-size:clamp(3rem,7.5vw,6.4rem);margin:14px 0 18px}
+.hrc-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:20px;margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+.hrc-facts{display:flex;flex-wrap:wrap;gap:10px;font-weight:600;font-size:.95rem}.hrc-facts i{color:var(--mu);font-style:normal}
 /* manifesto */
 .stm{padding:var(--pad) 0;border-top:1px solid var(--line)}
 .stm-grid{display:grid;grid-template-columns:220px 1fr;gap:32px}
@@ -496,11 +506,20 @@ function boldCss(t: Theme): string {
 .hb-row{display:grid;grid-template-columns:1fr auto;gap:32px;align-items:end;padding-bottom:clamp(40px,6vw,72px)}
 .hb-tag{font-size:clamp(1.25rem,2.2vw,1.8rem);line-height:1.25;max-width:620px;margin:0;font-weight:500}
 .hb .btn{background:var(--ink2);color:var(--onink);border-color:var(--ink2)}.hb .btn.ghost{background:transparent;color:var(--onp);border-color:var(--onp)}
-.hb .badge{right:max(24px,calc((100vw - 1240px)/2));bottom:-72px;color:var(--onink);background:var(--ink2);border-radius:50%;box-shadow:0 18px 40px -16px rgba(0,0,0,.5)}
+.hb .badge{left:50%;margin-left:-75px;bottom:-72px;color:var(--onink);background:var(--ink2);border-radius:50%;box-shadow:0 18px 40px -16px rgba(0,0,0,.5)}
 .hb .hb-row{padding-right:0}
 .hb-visual{position:relative;height:clamp(260px,38vw,520px);margin-top:-10px}
 .hb-visual .frame,.hb-visual .artwrap{position:absolute;inset:0}
-@media(max-width:900px){.hb-row{grid-template-columns:1fr}.hb .badge{width:110px;height:110px;bottom:-55px}}
+@media(max-width:900px){.hb-row{grid-template-columns:1fr}.hb .badge{width:110px;height:110px;bottom:-55px;left:auto;right:16px;margin-left:0}}
+/* bloco dividido (variação) */
+.hbs{background:var(--p);color:var(--onp);padding:clamp(36px,5vw,64px) 0;position:relative;z-index:2}
+.hbs-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(28px,4vw,56px);align-items:stretch}
+.hbs .hb-name span{display:block;white-space:nowrap}
+.hbs .btn{background:var(--ink2);color:var(--onink);border-color:var(--ink2)}.hbs .btn.ghost{background:transparent;color:var(--onp);border-color:var(--onp)}
+.hbs-visual{position:relative;min-height:420px;border:2px solid ${rgba(readableOn(t.primary), 0.9)}}
+.hbs-visual .frame,.hbs-visual .artwrap{position:absolute;inset:14px}
+.hbs-visual .badge{left:-48px;bottom:36px;color:var(--onink);background:var(--ink2);border-radius:50%}
+@media(max-width:900px){.hbs-grid{grid-template-columns:1fr}.hbs-visual{min-height:300px}.hbs-visual .badge{left:auto;right:12px;bottom:-40px;width:110px;height:110px}}
 /* letreiro */
 .c-bold .marq{background:var(--a);color:var(--ona);border:0;padding:26px 0}
 .c-bold .marq span{font-size:clamp(1.8rem,4vw,3.4rem)}
@@ -569,6 +588,17 @@ function invitingCss(t: Theme): string {
 .hi-card:nth-child(2){margin-left:36px}.hi-card:nth-child(3){margin-left:72px}
 @media(max-width:900px){.hi-grid{grid-template-columns:1fr}.hi-visual{min-height:440px}}
 @media(max-width:600px){.hi-visual{min-height:400px}.hi-blob{inset:0 0 30% 6%}.hi-cards{left:0;right:0;width:auto;bottom:0}.hi-card:nth-child(2),.hi-card:nth-child(3){margin-left:0}.hi-card{padding:12px 14px}}
+/* centralizado (variação) */
+.hic{position:relative;overflow:hidden;padding:clamp(56px,8vw,110px) 0 clamp(48px,6vw,80px);text-align:center}
+.hic-bg{position:absolute;inset:0;opacity:.14;pointer-events:none}.hic-bg .frame,.hic-bg .artwrap{position:absolute;inset:0}
+.hic-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,var(--bg) 92%)}
+.hic-in{position:relative}
+.hic h1{font-size:clamp(2.8rem,6.6vw,5.6rem);letter-spacing:-.035em;line-height:.98;margin:22px auto 20px;max-width:960px}
+.hic .lead{font-size:1.15rem;color:var(--mu);max-width:620px;margin:0 auto 30px}
+.hic .btn{min-height:58px;padding:0 30px}
+.hic-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:44px auto 0;max-width:1000px;text-align:left}
+.hic-cards .hi-card{margin:0!important}
+@media(max-width:800px){.hic-cards{grid-template-columns:1fr}}
 /* itens em cartões */
 .cats{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:32px}
 .cats a{padding:10px 18px;border-radius:999px;border:1px solid var(--line);background:var(--sf);text-decoration:none;font-weight:600;font-size:.92rem}
@@ -704,6 +734,37 @@ function hero(ctx: Ctx, s: Section): string {
   const hours = shortHours(ctx.spec);
   const addr = shortAddress(ctx.spec);
   const kicker = p.eyebrow || [ctx.segLabel, ctx.place].filter(Boolean).join(' · ');
+  const alt = (s.variant ?? 0) % 2 === 1;
+
+  if (alt) {
+    if (ctx.concept === 'refined') {
+      // Capa: arte/foto em largura total com o nome num cartão sobreposto
+      const facts = [hours ? `<span>${esc(hours)}</span>` : '', addr ? `<span>${esc(addr)}</span>` : ''].filter(Boolean).join('<i>·</i>');
+      return `<section class="hrc"><div class="hrc-media rv">${visual(ctx, img, 'rect', '', 'cover')}</div><div class="wrap"><div class="hrc-card rv d1">
+<p class="kicker">${esc(kicker)}</p><h1 class="hr-name">${esc(name)}</h1>${p.headline ? `<p class="hr-tag">${esc(p.headline)}</p>` : ''}
+<div class="hrc-row">${heroButtons(p, false)}${facts ? `<div class="hrc-facts">${facts}</div>` : ''}</div></div></div></section>`;
+    }
+    if (ctx.concept === 'bold') {
+      // Bloco dividido: nome empilhado palavra a palavra + bloco visual
+      const words = name.toUpperCase().split(/\s+/);
+      const longest = Math.max(...words.map((w) => w.length));
+      const k = (CONDENSED.has(ctx.theme.headingFont) ? 0.47 : ctx.theme.headingFont === 'Syne' ? 0.74 : 0.62) * longest;
+      const size = `min(${(700 / k).toFixed(1)}px, calc((100vw - 48px) / ${k.toFixed(2)}), 12rem)`;
+      return `<section class="hbs"><div class="wrap hbs-grid"><div><div class="hb-meta rv">${[kicker, hours].filter(Boolean).map((m) => `<span>${esc(m)}</span>`).join('')}</div>
+<h1 class="hb-name rv d1" style="font-size:${size}">${words.map((w, i) => `<span class="${i % 2 ? 'outline' : ''}">${esc(w)}</span>`).join('')}</h1>
+${p.headline ? `<p class="hb-tag rv d2">${esc(p.headline)}</p>` : ''}<div class="rv d3" style="margin-top:28px">${heroButtons(p)}</div></div>
+<div class="hbs-visual rv d2">${visual(ctx, img, 'rect', '', 'split')}${badge(ctx, [ctx.segLabel, ctx.place].filter(Boolean).join(' · '))}</div></div></section>`;
+    }
+    // convidativo centralizado com produtos reais em linha
+    const items = allItems(ctx.spec).slice(0, 3);
+    const row = items.length
+      ? `<div class="hic-cards">${items.map((i, n) => `<div class="hi-card rv d${n + 2}"><span class="ic">${icon(ctx.segIcon)}</span><div><b>${esc(i.name)}</b>${i.description ? `<small>${esc(i.description)}</small>` : i.extra ? `<small>${esc(i.extra)}</small>` : ''}</div>${i.price ? `<span class="price">${esc(i.price)}</span>` : ''}</div>`).join('')}</div>`
+      : '';
+    const meta = [hours ? `<span>${icon('clock')}${esc(hours)}</span>` : '', addr ? `<span>${icon('pin')}${esc(addr)}</span>` : ''].join('');
+    return `<section class="hic"><div class="hic-bg">${visual(ctx, img, 'rect', '', 'center')}</div><div class="wrap hic-in">
+<span class="pill rv">${icon(ctx.segIcon)}${esc(kicker)}</span><h1 class="rv d1">${esc(p.headline || name)}</h1>${p.subheadline ? `<p class="lead rv d2">${nl2br(p.subheadline)}</p>` : ''}
+<div class="rv d3" style="display:flex;justify-content:center">${heroButtons(p)}</div>${meta ? `<div class="hi-meta rv d4" style="justify-content:center">${meta}</div>` : ''}${row}</div></section>`;
+  }
 
   if (ctx.concept === 'refined') {
     const len = name.length;

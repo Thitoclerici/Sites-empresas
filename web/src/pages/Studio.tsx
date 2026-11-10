@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, fmtDate, type Detail, type SiteRecord, type SiteStatus } from '../lib/api.ts';
 import { useApp, useLoad } from '../lib/context.tsx';
 import { Empty, Modal, Spinner } from '../components/ui.tsx';
+import { Icon } from '../components/Icon.tsx';
 import { renderSite } from '../../../shared/render.ts';
 import { FONT_CHOICES, ORIGIN_LABEL, SECTION_DEFS, getSectionDef, type FieldDef, type Section, type SiteSpec, type Theme } from '../../../shared/site.ts';
 import { USABLE_RIGHTS, type Asset } from '../../../shared/types.ts';
@@ -17,7 +18,7 @@ export function StudioList() {
   const { segmentLabel } = useApp();
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Estúdio de criação</h1><p>Demonstrações de site geradas. Abra uma para visualizar e editar.</p></div></div>
+      <div className="page-head"><div><div className="crumb"><span className="tag info">Etapa 3</span> Fluxo de trabalho</div><h1>Sites criados</h1><p>Suas demonstrações. Abra uma para revisar, editar, enviar ao cliente ou publicar.</p></div><Link className="btn primary" to="/investigacao"><Icon name="plus" size={16} />Criar novo site</Link></div>
       <div className="card">
         {data?.length ? (
           <table className="table">
@@ -27,7 +28,7 @@ export function StudioList() {
                 <tr key={s.id}>
                   <td><Link to={`/estudio/${s.id}`} style={{ fontWeight: 600 }}>{s.name}</Link></td>
                   <td><Link to={`/investigacao/${s.businessId}`} style={{ color: 'var(--text)' }}>{s.businessName}</Link><div className="small muted">{segmentLabel(s.segment)}</div></td>
-                  <td><span className="tag">{STATUS_LABEL[s.status as SiteStatus]}</span></td>
+                  <td><span className={`tag ${s.status === 'published' ? 'ok' : s.status === 'draft' ? '' : 'info'}`}>{STATUS_LABEL[s.status as SiteStatus]}</span></td>
                   <td className="small">{s.shareEnabled ? <span className="tag ok">ativo · {s.shareViews} visualiz.</span> : <span className="faint">—</span>}</td>
                   <td className="small muted">{fmtDate(s.updatedAt)}</td>
                   <td><Link className="btn sm" to={`/estudio/${s.id}`}>Abrir editor</Link></td>
@@ -36,7 +37,7 @@ export function StudioList() {
             </tbody>
           </table>
         ) : (
-          <Empty title="Nenhuma demonstração ainda">Investigue um estabelecimento e clique em “Gerar demonstração de site”.</Empty>
+          <Empty title="Nenhum site criado ainda" icon="studio">Investigue um estabelecimento e clique em “Criar site”.</Empty>
         )}
       </div>
     </div>
@@ -183,7 +184,7 @@ export function StudioEditor() {
       <div className="studio-panel">
         <div className="studio-top">
           <div className="row between">
-            <Link to={`/investigacao/${site.businessId}`} className="small">← {detail.business.name}</Link>
+            <Link to={`/investigacao/${site.businessId}`} className="small row" style={{ gap: 6, fontWeight: 650 }}><img src="/brand/logo-mark.png" alt="" style={{ height: 20 }} /><Icon name="back" size={14} />{detail.business.name}</Link>
             <span className="small faint">v{site.version}{dirty ? ' · não salvo' : ''}</span>
           </div>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
@@ -215,6 +216,7 @@ export function StudioEditor() {
             <>
               <DirectionCard spec={spec} onChange={() => setConceptOpen(true)} />
               <QualityCard siteId={site.id} version={site.version} dirty={dirty} spec={spec} onGo={(type) => { const sec = spec.sections.find((x) => x.type === type); if (sec) (setSelected(sec.id), setTab('content')); }} />
+              <VisualCheck spec={spec} resolveAsset={resolveAsset} />
               <TipsTab siteId={site.id} dirty={dirty} onGo={(sid) => sid && (setSelected(sid), setTab('content'))} />
             </>
           )}
@@ -223,17 +225,24 @@ export function StudioEditor() {
 
       <div className="preview-wrap">
         <div className="preview-bar">
-          <div className="seg">
-            {(['desktop', 'tablet', 'mobile'] as const).map((d) => <button key={d} className={device === d ? 'on' : ''} onClick={() => setDevice(d)}>{{ desktop: 'Desktop', tablet: 'Tablet', mobile: 'Celular' }[d]}</button>)}
+          <div className="row" style={{ gap: 12 }}>
+            <div className="seg">
+              {(['desktop', 'tablet', 'mobile'] as const).map((d) => <button key={d} className={device === d ? 'on' : ''} onClick={() => setDevice(d)}>{{ desktop: 'Desktop', tablet: 'Tablet', mobile: 'Celular' }[d]}</button>)}
+            </div>
+            <label className="row small" title="Mostra as seções sem dados e as pendências (o cliente não vê)"><input type="checkbox" checked={showPending} onChange={(e) => setShowPending(e.target.checked)} />Mostrar pendências</label>
           </div>
-          <label className="row small"><input type="checkbox" checked={showPending} onChange={(e) => setShowPending(e.target.checked)} /> Modo edição (mostrar pendências)</label>
           <div className="row">
-            <RegenerateButton siteId={site.id} dirty={dirty} onDone={load} aiEnabled={!!config?.integrations.ai} />
-            <button className="btn sm" onClick={() => (dirty ? save().then(() => setConceptOpen(true)) : setConceptOpen(true))}>◐ Direção visual</button>
-            <button className="btn primary sm" onClick={() => (dirty ? save().then(() => setShareOpen(true)) : setShareOpen(true))}>➤ Enviar</button>
-            <button className="btn sm" onClick={() => (dirty ? save().then(() => setPublishOpen(true)) : setPublishOpen(true))}>🌐 {site.status === 'published' ? 'No ar' : 'Publicar'}</button>
-            <a className="btn sm" href={`/api/sites/${site.id}/preview`} target="_blank" rel="noreferrer" onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de abrir a prévia em nova aba.', true))}>Abrir prévia</a>
-            <a className="btn sm" href={`/api/sites/${site.id}/export`} onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de exportar.', true))}>Exportar HTML</a>
+            <button className="btn sm" onClick={() => (dirty ? save().then(() => setConceptOpen(true)) : setConceptOpen(true))}><Icon name="wand" size={15} />Direção visual</button>
+            <details className="more" style={{ position: 'relative' }}>
+              <summary className="btn sm" style={{ listStyle: 'none' }}><Icon name="menu" size={15} />Mais</summary>
+              <div className="card" style={{ position: 'absolute', right: 0, top: 36, zIndex: 20, padding: 6, display: 'grid', gap: 2, minWidth: 220, boxShadow: 'var(--shadow-lg)' }}>
+                <RegenerateButton siteId={site.id} dirty={dirty} onDone={load} aiEnabled={!!config?.integrations.ai} />
+                <a className="btn sm ghost" style={{ justifyContent: 'flex-start' }} href={`/api/sites/${site.id}/preview`} target="_blank" rel="noreferrer" onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de abrir a prévia em nova aba.', true))}><Icon name="eye" size={15} />Abrir prévia em nova aba</a>
+                <a className="btn sm ghost" style={{ justifyContent: 'flex-start' }} href={`/api/sites/${site.id}/export`} onClick={(e) => dirty && (e.preventDefault(), notify('Salve antes de exportar.', true))}><Icon name="file" size={15} />Exportar HTML</a>
+              </div>
+            </details>
+            <button className="btn sm" onClick={() => (dirty ? save().then(() => setPublishOpen(true)) : setPublishOpen(true))}><Icon name="globe" size={15} />{site.status === 'published' ? 'No ar' : 'Publicar'}</button>
+            <button className="btn primary sm" onClick={() => (dirty ? save().then(() => setShareOpen(true)) : setShareOpen(true))}><Icon name="send" size={15} />Enviar ao cliente</button>
           </div>
         </div>
         <div className="preview-stage">
@@ -296,7 +305,8 @@ function RegenerateButton({ siteId, dirty, onDone, aiEnabled }: { siteId: string
   const [busy, setBusy] = useState(false);
   return (
     <button
-      className="btn sm"
+      className="btn sm ghost"
+      style={{ justifyContent: 'flex-start' }}
       disabled={busy}
       title="Gera novamente o site inteiro com os dados atuais (a versão anterior fica no histórico)"
       onClick={async () => {
@@ -313,7 +323,7 @@ function RegenerateButton({ siteId, dirty, onDone, aiEnabled }: { siteId: string
         }
       }}
     >
-      {busy ? <Spinner /> : '↻'} Regenerar
+      {busy ? <Spinner /> : <Icon name="refresh" size={15} />} Regenerar com dados atuais
     </button>
   );
 }
@@ -686,7 +696,7 @@ function ShareModal({ siteId, businessName, unverified, status, onClose }: { sit
 
 interface ConceptOption { id: string; label: string; description: string; spec: SiteSpec; quality: number }
 
-function MiniPreview({ spec, resolveAsset, width, height, scale }: { spec: SiteSpec; resolveAsset: (id: string) => string | null; width: number; height: number; scale: number }) {
+export function MiniPreview({ spec, resolveAsset, width, height, scale }: { spec: SiteSpec; resolveAsset: (id: string) => string | null; width: number; height: number; scale: number }) {
   const html = useMemo(() => renderSite(spec, { mode: 'preview', resolveAsset, demoNotice: null }), [spec, resolveAsset]);
   return (
     <div style={{ width: width * scale, height: height * scale, overflow: 'hidden', borderRadius: 10, border: '1px solid var(--line)', background: '#fff', position: 'relative', flex: 'none' }}>
@@ -943,5 +953,107 @@ function PublishModal({ siteId, businessName, onClose, onApprove }: { siteId: st
         </div>
       )}
     </Modal>
+  );
+}
+
+/* ---------- verificação visual renderizada (no navegador, desktop e celular) ---------- */
+
+interface VCheck { label: string; ok: boolean; detail: string }
+
+function measure(doc: Document, win: Window, mobile: boolean): VCheck[] {
+  const vw = win.innerWidth;
+  const vh = win.innerHeight;
+  const out: VCheck[] = [];
+  const sw = doc.documentElement.scrollWidth;
+  out.push({ label: 'Sem rolagem lateral', ok: sw <= vw + 2, detail: sw <= vw + 2 ? 'Nada ultrapassa a largura da tela.' : `O conteúdo tem ${sw}px numa tela de ${vw}px.` });
+  const hero = doc.querySelector('main section');
+  const cta = hero?.querySelector('.btn, .link') as HTMLElement | null;
+  const ctaTop = cta ? cta.getBoundingClientRect().top + win.scrollY : Infinity;
+  out.push({ label: 'Botão de ação na primeira tela', ok: ctaTop < vh, detail: !cta ? 'Nenhum botão na abertura.' : ctaTop < vh ? 'Visível sem rolar.' : `Aparece só após rolar ${Math.round(ctaTop - vh)}px.` });
+  const h1 = doc.querySelector('h1') as HTMLElement | null;
+  const h1w = h1 ? Math.max(...Array.from(h1.querySelectorAll('span')).map((x) => (x as HTMLElement).scrollWidth), h1.scrollWidth) : 0;
+  out.push({ label: 'Título cabe na tela', ok: !h1 || h1w <= vw, detail: h1 ? (h1w <= vw ? 'Sem cortes.' : 'O título está cortado ou ultrapassa a tela.') : 'Sem título.' });
+  let small = 0;
+  doc.querySelectorAll('main p, main span, main a, main b, main li').forEach((el) => {
+    const e = el as HTMLElement;
+    if (!e.textContent?.trim() || e.children.length) return;
+    const fs = parseFloat(win.getComputedStyle(e).fontSize);
+    if (fs < (mobile ? 12 : 11.5)) small++;
+  });
+  out.push({ label: 'Textos legíveis', ok: small === 0, detail: small ? `${small} texto(s) com letra muito pequena.` : 'Tamanhos de letra adequados.' });
+  if (mobile) {
+    let tiny = 0;
+    doc.querySelectorAll('.btn, .mbar a, .mnav summary').forEach((el) => {
+      const r = (el as HTMLElement).getBoundingClientRect();
+      if (r.width && r.height < 40) tiny++;
+    });
+    out.push({ label: 'Botões fáceis de tocar', ok: tiny === 0, detail: tiny ? `${tiny} botão(ões) com menos de 40px de altura.` : 'Todos com área de toque confortável.' });
+    out.push({ label: 'Barra de ações fixa', ok: !!doc.querySelector('.mbar'), detail: doc.querySelector('.mbar') ? 'Contato, cardápio e rota sempre à mão.' : 'Sem dados suficientes para a barra (contato/rota).' });
+  }
+  const broken = Array.from(doc.images).filter((i) => i.complete && i.naturalWidth === 0).length;
+  out.push({ label: 'Imagens carregadas', ok: broken === 0, detail: broken ? `${broken} imagem(ns) com erro.` : 'Sem imagens quebradas.' });
+  return out;
+}
+
+function VisualCheck({ spec, resolveAsset }: { spec: SiteSpec; resolveAsset: (id: string) => string | null }) {
+  const [res, setRes] = useState<{ desktop: VCheck[]; mobile: VCheck[] } | null>(null);
+  const [running, setRunning] = useState(false);
+  const html = useMemo(() => renderSite(spec, { mode: 'preview', resolveAsset, demoNotice: null }), [spec, resolveAsset]);
+  const host = useRef<HTMLDivElement>(null);
+
+  async function run() {
+    if (!host.current) return;
+    setRunning(true);
+    const one = (w: number, h: number, mobile: boolean) =>
+      new Promise<VCheck[]>((resolve) => {
+        const f = document.createElement('iframe');
+        f.style.cssText = `position:absolute;left:-10000px;top:0;width:${w}px;height:${h}px;border:0;visibility:hidden`;
+        f.onload = () => {
+          const doc = f.contentDocument!;
+          if (!doc?.querySelector('main')) return; // ignora o carregamento inicial vazio (about:blank)
+          const done = () => setTimeout(() => {
+            try {
+              resolve(measure(doc, f.contentWindow!, mobile));
+            } catch {
+              resolve([]);
+            }
+            f.remove();
+          }, 600);
+          (doc as any).fonts?.ready ? (doc as any).fonts.ready.then(done) : done();
+        };
+        f.srcdoc = html;
+        host.current!.appendChild(f);
+      });
+    const [desktop, mobile] = await Promise.all([one(1280, 800, false), one(390, 844, true)]);
+    setRes({ desktop, mobile });
+    setRunning(false);
+  }
+
+  useEffect(() => {
+    const t = setTimeout(run, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [html]);
+
+  const all = res ? [...res.desktop, ...res.mobile] : [];
+  const fails = all.filter((c) => !c.ok).length;
+  return (
+    <div className="card card-pad stack" style={{ gap: 8 }}>
+      <div ref={host} style={{ position: 'relative', height: 0, overflow: 'hidden' }} />
+      <div className="row between"><h3>Verificação visual</h3>{running ? <Spinner /> : res && <span className={`tag ${fails ? 'warn' : 'ok'}`}>{fails ? `${fails} ajuste(s)` : 'tudo certo'}</span>}</div>
+      <p className="small muted">O site é renderizado de verdade em 1280px (desktop) e 390px (celular) e medido: rolagem lateral, botão na primeira tela, título, legibilidade e toque.</p>
+      {res && (['desktop', 'mobile'] as const).map((k) => (
+        <div key={k}>
+          <div className="small" style={{ fontWeight: 700, margin: '6px 0 4px' }}>{k === 'desktop' ? 'Desktop' : 'Celular'}</div>
+          {res[k].map((c) => (
+            <div key={c.label} className="row small" style={{ gap: 8, padding: '3px 0', flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+              <span className={`tag ${c.ok ? 'ok' : 'warn'}`} style={{ minWidth: 26, justifyContent: 'center' }}><Icon name={c.ok ? 'check' : 'alert'} size={11} /></span>
+              <span><b>{c.label}</b> <span className="muted">— {c.detail}</span></span>
+            </div>
+          ))}
+        </div>
+      ))}
+      <button className="btn sm" style={{ justifySelf: 'start' }} disabled={running} onClick={run}><Icon name="refresh" size={14} />Verificar de novo</button>
+    </div>
   );
 }

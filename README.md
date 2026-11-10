@@ -49,6 +49,16 @@ Decisões principais:
 - **Prioridade explicável.** O score usa apenas critérios observáveis (situação do site, aderência do segmento, contato público, indícios de atividade, rede/franquia) e mostra os pontos de cada critério. Nunca estima faturamento.
 - **Extensível.** Um novo segmento é só um novo perfil em `segments.ts`, e uma nova fonte é só um novo provider. O SQLite pode migrar para PostgreSQL sem mudar o domínio.
 
+## 2.0 Jornada na plataforma
+
+O menu segue o fluxo de trabalho, numerado: **1 Encontrar negócios → 2 Investigar → 3 Sites criados → 4 Vendas**. Em cada estabelecimento, uma barra de jornada mostra a etapa atual: *Encontrar → Investigar → Complementar → Gerar site → Revisar → Salvar e enviar*.
+
+- **Busca**: onde (cidade e bairro), o quê (tipos de negócio) e tamanho da área (bairro inteiro ou raio de 500 m a 5 km), com frase-resumo da busca ativa. Resultados unificam duplicados (ponto e prédio do mesmo negócio no OSM, ou buscas repetidas), padronizam telefones e mostram em cartões os dados disponíveis, a situação do site, se já existe demonstração e a etapa de venda; com filtros, ordenação e a metodologia da prioridade explicada.
+- **Situação do site** em três categorias fundamentadas: **sem site** (nenhuma fonte indica site, só redes sociais/plataformas, ou confirmado por você), **com site** e **não confirmado** (o OSM não registra site — o que não prova ausência). Sites existentes podem ser verificados (na investigação ou em lote nos resultados) e classificados como **fraco/desatualizado** — sem HTTPS, sem versão para celular, sem título/descrição, copyright antigo, construtor genérico, pouco conteúdo ou código antigo — ou **fora do ar** (apenas falhas inequívocas: domínio inexistente, conexão recusada, 404/410, erro 5xx).
+- **Investigar**: informações encontradas com fonte, data e origem (automático × informado por você), edição de qualquer dado, materiais (fotos, logo, cardápio) e um checklist “Pronto para criar o site?”.
+- **Criar site** (assistente em 5 etapas): informações do negócio → identidade visual → conteúdo → estilo (prévia real das 3 direções) → gerar. Tudo vem preenchido com o que a investigação encontrou; campos obrigatórios marcados, exemplos e validação com mensagens claras.
+- **Estúdio**: além da avaliação de qualidade, a **verificação visual** renderiza o site em 1280 px e 390 px no navegador e mede rolagem lateral, botão na primeira tela, título, legibilidade, área de toque e imagens.
+
 ## 2.1 Motor de geração de sites (direção de arte)
 
 O gerador não preenche um modelo único. Para cada estabelecimento ele:

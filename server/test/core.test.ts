@@ -124,3 +124,45 @@ test('normaliza domínios do cliente (raiz x subdomínio)', () => {
   assert.equal(normalizeDomain('barbearia.com').kind, 'apex');
   assert.throws(() => normalizeDomain('não é domínio'));
 });
+
+import { evaluateHtml } from '../src/providers/website.ts';
+import { dedupePlaces, normalizePhone } from '../src/services/prospecting.ts';
+import { isSiteDown } from '../src/services/investigation.ts';
+import { dedupeKey } from '../src/repo.ts';
+
+test('qualidade de site existente: sinais verificáveis', () => {
+  const old = '<html><head><title>Bar</title></head><body><table width="600" bgcolor="#fff"><tr><td><font>Olá</font></td></tr></table>© 2016 Bar do Zé</body></html>';
+  const q = evaluateHtml(old, 'http://bardoze.com.br', new Date('2026-11-10'));
+  assert.equal(q.level, 'weak');
+  assert.ok(q.issues.some((i) => i.includes('HTTPS')));
+  assert.ok(q.issues.some((i) => i.includes('celular')));
+  assert.ok(q.issues.some((i) => i.includes('2016')));
+  const good = `<html><head><title>Café</title><meta name="viewport" content="width=device-width"><meta name="description" content="x"></head><body>${'conteúdo '.repeat(80)} © 2026</body></html>`;
+  assert.equal(evaluateHtml(good, 'https://cafe.com.br', new Date('2026-11-10')).level, 'ok');
+});
+
+test('fora do ar só em falhas inequívocas', () => {
+  assert.equal(isSiteDown('Falha de conexão com x.com.br: ENOTFOUND'), true);
+  assert.equal(isSiteDown('O site respondeu HTTP 404'), true);
+  assert.equal(isSiteDown('Tempo esgotado ao acessar x.com.br'), false);
+  assert.equal(isSiteDown('O robots.txt do site não permite'), false);
+});
+
+test('telefones padronizados', () => {
+  assert.equal(normalizePhone('+55 11 3000-0000'), '(11) 3000-0000');
+  assert.equal(normalizePhone('11990000000'), '(11) 99000-0000');
+  assert.equal(normalizePhone('+55 (11) 99000-0000; +55 11 3000-0000'), '(11) 99000-0000');
+});
+
+test('duplicados da mesma busca são unificados', () => {
+  const base = { address: {}, provider: 'overpass' as const };
+  const r = dedupePlaces([
+    { ...base, ref: 'osm:node/1', name: 'Café Aurora', lat: -23.56, lon: -46.69, tags: { name: 'Café Aurora', amenity: 'cafe' } },
+    { ...base, ref: 'osm:way/2', name: 'Cafe Aurora', lat: -23.5603, lon: -46.6901, tags: { name: 'Cafe Aurora', amenity: 'cafe', phone: '1130000000' } },
+    { ...base, ref: 'osm:node/3', name: 'Café Aurora', lat: -23.6, lon: -46.7, tags: { name: 'Café Aurora' } },
+  ]);
+  assert.equal(r.places.length, 2); // o terceiro está a ~5 km: outro estabelecimento
+  assert.equal(r.merged, 1);
+  assert.equal(r.places[0]!.tags.phone, '1130000000');
+  assert.equal(dedupeKey('Padaria Bella Ltda'), dedupeKey('BELLA'));
+});
